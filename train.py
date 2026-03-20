@@ -51,15 +51,15 @@ class Hyperparameters:
 
     # Model
     vocab_size = int(os.environ.get("VOCAB_SIZE", 1024))
-    num_steps = int(os.environ.get("NUM_STEPS", 48))
+    num_steps = int(os.environ.get("NUM_STEPS", 16))
     kernel_size = int(os.environ.get("KERNEL_SIZE", 16))
     n_fourier_basis = int(os.environ.get("N_FOURIER_BASIS", 16))
-    n_channels = int(os.environ.get("N_CHANNELS", 64))
+    n_channels = int(os.environ.get("N_CHANNELS", 128))
     activation = os.environ.get("ACTIVATION", "gelu")
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
 
     # Optimizer (Adam only — no big matrices for Muon)
-    lr = float(os.environ.get("LR", 0.001))
+    lr = float(os.environ.get("LR", 0.03))
     beta1 = float(os.environ.get("BETA1", 0.9))
     beta2 = float(os.environ.get("BETA2", 0.999))
     adam_eps = float(os.environ.get("ADAM_EPS", 1e-8))
