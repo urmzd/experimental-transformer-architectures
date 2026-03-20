@@ -30,7 +30,8 @@ No embedding matrix. No output projection. Every intermediate state is readable 
 | [v2](v2_causal_conv/) | Depthwise causal conv | Fourier ops | 1.3M | — | Abandoned |
 | [v3](v3_assoc_memory/) | Associative memory | Fourier ops | 328K–1.7M | — | In progress |
 | [v4](v4_param_optimized/) | Assoc memory (shared Q/K) | Factored ops | ~101K | — | In progress |
-| [v_gauss](v_gauss/) | FFT-based assoc memory | FFT register ops | — | — | In progress |
+| [v5](v5_gauss_fft/) | FFT-based assoc memory | FFT register ops | 919K | — | Tested (flat loss) |
+| [v6](v6_brain_wave/) | Oscillatory coupling | Wave interference | — | — | Design only |
 
 ## Quick Start
 
@@ -61,7 +62,8 @@ v1_shared_attention/           # Shared attention (best results)
 v2_causal_conv/                # Depthwise conv (abandoned)
 v3_assoc_memory/               # Associative memory
 v4_param_optimized/            # Param-optimized design
-v_gauss/                       # FFT-based design
+v5_gauss_fft/                  # FFT-based design
+v6_brain_wave/                 # Oscillatory dynamics design
 docs/                          # Research notes and design docs
 ```
 
