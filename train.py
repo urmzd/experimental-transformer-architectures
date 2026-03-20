@@ -79,6 +79,10 @@ class Hyperparameters:
     # graph-specific
     interaction_rank = int(os.environ.get("INTERACTION_RANK", 64))
 
+    # meta-state-specific
+    state_dim = int(os.environ.get("STATE_DIM", 64))
+    inner_dim = int(os.environ.get("INNER_DIM", 128))
+
     # Optimizer
     lr = float(os.environ.get("LR", 0.03))
     beta1 = float(os.environ.get("BETA1", 0.9))
@@ -688,6 +692,17 @@ def main():
             vocab_size=args.vocab_size,
             num_hops=args.num_steps,
             interaction_rank=args.interaction_rank,
+            logit_softcap=args.logit_softcap,
+            activation=args.activation,
+            decay_init=args.decay_init,
+        ).to(device).bfloat16()
+    elif args.model_version == "meta":
+        from v9_meta_state.model import MetaStateGPT
+        base_model = MetaStateGPT(
+            vocab_size=args.vocab_size,
+            num_steps=args.num_steps,
+            state_dim=args.state_dim,
+            inner_dim=args.inner_dim,
             logit_softcap=args.logit_softcap,
             activation=args.activation,
             decay_init=args.decay_init,
