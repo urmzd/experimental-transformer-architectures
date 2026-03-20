@@ -51,6 +51,7 @@ class Hyperparameters:
     max_wallclock_seconds = float(os.environ.get("MAX_WALLCLOCK_SECONDS", 600.0))
 
     # Model
+    model_version = os.environ.get("MODEL_VERSION", "v3")
     vocab_size = int(os.environ.get("VOCAB_SIZE", 1024))
     num_steps = int(os.environ.get("NUM_STEPS", 8))
     n_fourier_basis = int(os.environ.get("N_FOURIER_BASIS", 16))
@@ -58,6 +59,12 @@ class Hyperparameters:
     activation = os.environ.get("ACTIVATION", "gelu")
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
     decay_init = float(os.environ.get("DECAY_INIT", 3.0))
+
+    # v4-specific
+    n_heads = int(os.environ.get("N_HEADS", 4))
+    transform_rank = int(os.environ.get("TRANSFORM_RANK", 8))
+    unique_steps = int(os.environ.get("UNIQUE_STEPS", 5))
+    invocations_per_step = int(os.environ.get("INVOCATIONS_PER_STEP", 2))
 
     # Optimizer
     lr = float(os.environ.get("LR", 0.03))
@@ -73,6 +80,8 @@ CONTROL_TENSOR_NAME_PATTERNS = (
     "mem_scale", "op_scale", "read_coeffs", "write_coeffs",
     "channel_mix", "bias", "out_scale", "logit_scale", "decay_logit",
     "coeffs",
+    # v4 additions
+    "diag", "mix_down", "mix_up", "decay_logits", "_override",
 )
 
 # -----------------------------
@@ -462,15 +471,30 @@ def main():
     val_tokens = load_validation_tokens(args.val_files, args.train_seq_len)
     bbl, hsl, ibl = build_sentencepiece_luts(sp, args.vocab_size, device)
 
-    base_model = AssocRegisterLM(
-        vocab_size=args.vocab_size,
-        num_steps=args.num_steps,
-        n_fourier_basis=args.n_fourier_basis,
-        n_channels=args.n_channels,
-        logit_softcap=args.logit_softcap,
-        activation=args.activation,
-        decay_init=args.decay_init,
-    ).to(device).bfloat16()
+    if args.model_version == "v4":
+        from model_v4 import RegisterGPTv4
+        base_model = RegisterGPTv4(
+            vocab_size=args.vocab_size,
+            unique_steps=args.unique_steps,
+            invocations_per_step=args.invocations_per_step,
+            n_fourier_basis=args.n_fourier_basis,
+            n_channels=args.n_channels,
+            n_heads=args.n_heads,
+            transform_rank=args.transform_rank,
+            logit_softcap=args.logit_softcap,
+            activation=args.activation,
+            decay_init=args.decay_init,
+        ).to(device).bfloat16()
+    else:
+        base_model = AssocRegisterLM(
+            vocab_size=args.vocab_size,
+            num_steps=args.num_steps,
+            n_fourier_basis=args.n_fourier_basis,
+            n_channels=args.n_channels,
+            logit_softcap=args.logit_softcap,
+            activation=args.activation,
+            decay_init=args.decay_init,
+        ).to(device).bfloat16()
 
     # Keep small control params in fp32
     with torch.no_grad():
@@ -496,9 +520,15 @@ def main():
     n_params = sum(p.numel() for p in base_model.parameters())
     n_trainable = sum(p.numel() for p in base_model.parameters() if p.requires_grad)
     log0(f"run_id:{args.run_id}")
-    log0(f"architecture:AssocRegisterLM (associative memory, registers ARE words)")
-    log0(f"model_params:{n_params} trainable:{n_trainable} vocab=dim={args.vocab_size}")
-    log0(f"steps:{args.num_steps} channels:{args.n_channels} fourier:{args.n_fourier_basis}")
+    if args.model_version == "v4":
+        log0(f"architecture:RegisterGPTv4 (parameter-golf, shared Q/K, multi-head decay)")
+        log0(f"model_params:{n_params} trainable:{n_trainable} vocab=dim={args.vocab_size}")
+        log0(f"unique_steps:{args.unique_steps} invocations:{args.invocations_per_step} depth:{args.unique_steps * args.invocations_per_step}")
+        log0(f"channels:{args.n_channels} heads:{args.n_heads} rank:{args.transform_rank} fourier:{args.n_fourier_basis}")
+    else:
+        log0(f"architecture:AssocRegisterLM (associative memory, registers ARE words)")
+        log0(f"model_params:{n_params} trainable:{n_trainable} vocab=dim={args.vocab_size}")
+        log0(f"steps:{args.num_steps} channels:{args.n_channels} fourier:{args.n_fourier_basis}")
     log0(f"activation:{args.activation} lr:{args.lr} grad_clip:{args.grad_clip_norm} decay_init:{args.decay_init}")
     log0(f"NO attention. NO embedding. NO output projection.")
     log0(f"world_size:{world_size} grad_accum:{grad_accum_steps} batch:{args.train_batch_tokens}")
