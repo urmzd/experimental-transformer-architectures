@@ -1,29 +1,39 @@
 # AGI Models
 
-Experimental architectures exploring **interpretable, efficient computation** for language modeling — where the model's internal state is always human-readable.
+Exploring what computation *actually is* — not copying the brain's structure, but finding the simplest mathematical substrate that produces intelligence.
 
-## Core Principles
+## Philosophy
 
-**Registers are words.** Standard transformers map tokens into opaque embedding spaces. These models keep computation in **vocabulary space** the entire time:
+### 1. The medium is not the message
+Everyone in ML copies the brain's **structure**: neurons → hidden units, synapses → weights, cortical layers → transformer layers. This is like trying to fly by building mechanical feathers. We don't copy structure — we look for the **underlying dynamics** that produce intelligent behavior, regardless of substrate.
+
+### 2. Registers are words
+Standard transformers map tokens into opaque embedding spaces where intermediate states are uninterpretable. Our models keep computation in **vocabulary space** — every intermediate state is readable as "which words are active and how strongly." Interpretability by construction, not by post-hoc analysis.
 
 ```
 Input:  one-hot("cat") → R["cat"] = 1.0, all else 0.0
 State:  always a distribution over words
-Output: register state IS the prediction — R["dog"]=0.3, R["mat"]=0.25
+Output: register state IS the prediction — no output projection needed
 ```
 
-No embedding matrix. No output projection. Interpretability by construction.
+### 3. Simple math, composed deeply
+Dot products, outer products, dense projections, relu. If the math didn't exist before 1980, we probably don't need it. The power comes from **composition and scale**, not mathematical complexity. This is why attention works — it's just a weighted average. And it's why Fourier projections failed us — too clever, not enough capacity.
 
-**Simple math only.** Dot products, outer products, dense projections, relu/gelu. If the math didn't exist before 1980, we don't use it. The power comes from composition and scale, not mathematical complexity.
+### 4. Meta-learning over memorization
+The trained weights define **how to learn**. The runtime state (Q-table, associative memory, policy) stores **what was learned** from the current sequence. The model learns during inference — like a Q-table in reinforcement learning that starts empty and fills up through experience.
 
-**Meta-learning over memorization.** The model's trained weights define *how to learn*. The runtime state (Q-table, associative memory) stores *what was learned* from the current sequence. The model learns during inference.
+### 5. Policy over lookup
+Instead of memorizing every possible relationship (like attention's Q·K^T over all positions), learn a compact **policy** that decides what to do given the current state. The same mechanism can execute different operations on different inputs — data-dependent branching, not fixed computation.
 
-## Research Questions
+## What we've learned
 
-1. **Can we replace attention with an evolving Q-table?** Cross-position mixing as meta-learning, not static projections.
-2. **What is the minimum computational substrate for language?** Sequential execution of cheap operations on a register bank.
-3. **Do Fourier projections help or hurt?** Early results: dense projections (full-rank) work, Fourier (rank-constrained) don't learn.
-4. **Can 101K params model language structure?** v4 reached val_bpb 3.65 — better than random but not competitive yet.
+**Fourier projections don't work for cross-position mixing.** v3, v5, v6 all used Fourier-parameterized projections (rank-32 bottleneck) for Q/K/V. All produced flat loss. The bottleneck can't capture the complexity of word relationships.
+
+**Dense projections work.** v1 (attention with dense matrices) and v9 (Q-table with dense projections) both learn. The key ingredient is full-rank learned projection matrices.
+
+**Phase transitions are real.** v9 plateaued for 150 steps then loss dropped sharply from 6.30 → 5.60 in 80 steps. Don't kill runs during plateaus — the model may be coordinating internal representations before a breakthrough.
+
+**101K params can learn language structure.** v4 reached val_bpb 3.65 with only 101K parameters (419KB compressed). Not competitive yet, but proves the architectural ideas have merit at extreme compression.
 
 ## Architecture Iterations
 
@@ -41,9 +51,17 @@ No embedding matrix. No output projection. Interpretability by construction.
 | **[v9](v9_meta_state/)** | **Evolving Q-table (dense)** | **Dense MLP** | **4.2M** | **9.3MB** | **3.32** | **Still dropping** |
 | [v10](v10_policy/) | Causal decay + policy | State-dependent ops | — | — | — | Ready |
 
-### Key finding
+### Evolution of ideas
 
-Everything with Fourier projections (v3, v5, v6) fails to learn — the rank-32 bottleneck can't capture word relationships. Dense projections (v1, v4) work. **v9 combines dense projections with the Q-table meta-learning insight.**
+```
+v0-v1: Can registers = words?              → Yes, with attention (v1 best bpb)
+v2:    Can convolutions replace attention?  → No (too slow, no cross-word mixing)
+v3-v6: Can Fourier projections replace      → No (rank bottleneck kills learning)
+       dense matrices?
+v4:    How small can we go?                 → 101K params, 419KB, val_bpb 3.65
+v9:    Q-table with dense projections?      → Yes! Phase transition, val_bpb 3.32
+v10:   Policy instead of lookup?            → Testing
+```
 
 ## Quick Start
 
@@ -55,17 +73,10 @@ curl -sSL https://raw.githubusercontent.com/urmzd/agi-models/main/bootstrap.sh |
 pip install huggingface_hub sentencepiece
 python data/download_data.py --variant sp1024
 
-# Train v9 (meta-state Q-table)
-MODEL_VERSION=meta torchrun --standalone --nproc_per_node=1 train.py
-
-# All model versions
-MODEL_VERSION=v3    # associative memory
-MODEL_VERSION=v4    # param-optimized (101K params)
-MODEL_VERSION=gauss # FFT-based
-MODEL_VERSION=wave  # oscillatory dynamics
-MODEL_VERSION=lgp   # true LGP (differentiable register machine)
-MODEL_VERSION=graph # word interaction graph
-MODEL_VERSION=meta  # Q-table meta-state (recommended)
+# Train (pick a model)
+MODEL_VERSION=meta   torchrun --standalone --nproc_per_node=1 train.py  # v9 Q-table (recommended)
+MODEL_VERSION=policy torchrun --standalone --nproc_per_node=1 train.py  # v10 policy
+MODEL_VERSION=v4     torchrun --standalone --nproc_per_node=1 train.py  # 101K params
 ```
 
 All hyperparameters configurable via env vars. See [AGENTS.md](AGENTS.md).
@@ -74,26 +85,25 @@ All hyperparameters configurable via env vars. See [AGENTS.md](AGENTS.md).
 
 ```
 train.py                       # Unified training script (all models)
-model.py                       # v3 reference model
-model_v4.py                    # v4 param-optimized model
 data/download_data.py          # Data download (FineWeb sp1024)
 bootstrap.sh                   # One-command RunPod setup
-v0_register_lm/               # Original prototype (learned embeddings)
-v1_shared_attention/           # Shared attention (best results)
+v0_register_lm/               # Prototype (learned embeddings)
+v1_shared_attention/           # Shared attention (best bpb)
 v2_causal_conv/                # Depthwise conv (abandoned)
-v3_assoc_memory/               # Associative memory (Fourier projections)
-v4_param_optimized/            # Param-optimized (101K params, shared Q/K)
-v5_gauss_fft/                  # FFT-based (Gauss)
-v6_brain_wave/                 # Oscillatory dynamics
+v3_assoc_memory/               # Associative memory (Fourier — bottlenecked)
+v4_param_optimized/            # Param-optimized (101K params)
+v5_gauss_fft/                  # FFT-based (flat loss)
+v6_brain_wave/                 # Oscillatory dynamics (flat loss)
 v7_lgp/                        # True LGP (op bank + soft addressing)
 v8_word_graph/                 # Direct word-to-word graph
-v9_meta_state/                 # Q-table meta-state (dense, no Fourier)
+v9_meta_state/                 # Q-table meta-state (best non-attention)
+v10_policy/                    # State-dependent policy execution
 docs/                          # Research notes and design docs
 ```
 
 ## Inspirations
 
-- [Linear Genetic Programming](https://github.com/urmzd/linear-gp) — register machines, Q-tables, evolution of programs
-- [OpenAI Parameter Golf](https://github.com/openai/parameter-golf) — constraints that force innovation
+- [Linear Genetic Programming](https://github.com/urmzd/linear-gp) — register machines, Q-tables, sequential cheap operations
+- Reinforcement learning — Q-tables as meta-learning, policy over lookup
 - Hopfield networks (1982) — associative memory via outer products
-- Reinforcement learning — Q-tables as meta-learning substrate
+- [OpenAI Parameter Golf](https://github.com/openai/parameter-golf) — constraints that force architectural innovation
