@@ -552,7 +552,8 @@ def main():
             if (p.ndim < 2 or any(pat in name for pat in CONTROL_TENSOR_NAME_PATTERNS)) and p.dtype != torch.float32:
                 p.data = p.data.float()
 
-    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True)
+    use_compile = bool(int(os.environ.get("TORCH_COMPILE", "0")))
+    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True) if use_compile else base_model
     model = DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
 
     # Optimizer: Muon for attention matrices, Adam for everything else
