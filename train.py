@@ -1,6 +1,6 @@
 """
-VocabRegisterLM — PyTorch/CUDA version for GPU training.
-Each register IS a word. No embedding, no output projection.
+RegisterGPT v2 — Attention-free register machine, PyTorch/CUDA training.
+Depthwise causal conv + Fourier register ops. No attention. No embedding.
 Compatible with torchrun for multi-GPU training.
 """
 from __future__ import annotations
@@ -49,97 +49,32 @@ class Hyperparameters:
     train_seq_len = int(os.environ.get("TRAIN_SEQ_LEN", 1024))
     max_wallclock_seconds = float(os.environ.get("MAX_WALLCLOCK_SECONDS", 600.0))
 
-    # Model: dim = vocab_size (registers ARE words)
+    # Model
     vocab_size = int(os.environ.get("VOCAB_SIZE", 1024))
-    num_heads = int(os.environ.get("NUM_HEADS", 8))
-    num_kv_heads = int(os.environ.get("NUM_KV_HEADS", 4))
-    num_recurrent_steps = int(os.environ.get("NUM_RECURRENT_STEPS", 24))
+    num_steps = int(os.environ.get("NUM_STEPS", 48))
+    kernel_size = int(os.environ.get("KERNEL_SIZE", 16))
     n_fourier_basis = int(os.environ.get("N_FOURIER_BASIS", 16))
-    n_channels = int(os.environ.get("N_CHANNELS", 32))
+    n_channels = int(os.environ.get("N_CHANNELS", 64))
     activation = os.environ.get("ACTIVATION", "gelu")
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
-    rope_base = float(os.environ.get("ROPE_BASE", 10000.0))
-    qk_gain_init = float(os.environ.get("QK_GAIN_INIT", 1.5))
 
-    # Optimizer
+    # Optimizer (Adam only — no big matrices for Muon)
+    lr = float(os.environ.get("LR", 0.001))
     beta1 = float(os.environ.get("BETA1", 0.9))
-    beta2 = float(os.environ.get("BETA2", 0.95))
+    beta2 = float(os.environ.get("BETA2", 0.999))
     adam_eps = float(os.environ.get("ADAM_EPS", 1e-8))
-    matrix_lr = float(os.environ.get("MATRIX_LR", 0.04))
-    scalar_lr = float(os.environ.get("SCALAR_LR", 0.04))
-    muon_momentum = float(os.environ.get("MUON_MOMENTUM", 0.95))
-    muon_backend_steps = int(os.environ.get("MUON_BACKEND_STEPS", 5))
-    muon_momentum_warmup_start = float(os.environ.get("MUON_MOMENTUM_WARMUP_START", 0.85))
-    muon_momentum_warmup_steps = int(os.environ.get("MUON_MOMENTUM_WARMUP_STEPS", 500))
-    grad_clip_norm = float(os.environ.get("GRAD_CLIP_NORM", 0.0))
+    weight_decay = float(os.environ.get("WEIGHT_DECAY", 0.0))
+    grad_clip_norm = float(os.environ.get("GRAD_CLIP_NORM", 1.0))
 
 
-# Patterns for scalar/control tensors (Adam, not Muon)
+# Patterns for control tensors (kept in float32)
 CONTROL_TENSOR_NAME_PATTERNS = (
-    "attn_scales", "op_scales", "q_gain", "read_coeffs", "write_coeffs",
-    "mix_weight", "bias", "out_scale", "logit_scale",
+    "conv_scale", "op_scale", "read_coeffs", "write_coeffs",
+    "channel_mix", "bias", "out_scale", "logit_scale",
 )
 
 # -----------------------------
-# MUON OPTIMIZER
-# -----------------------------
-
-def zeropower_via_newtonschulz5(G: Tensor, steps: int = 10, eps: float = 1e-7) -> Tensor:
-    a, b, c = (3.4445, -4.7750, 2.0315)
-    X = G.bfloat16()
-    X /= X.norm() + eps
-    transposed = G.size(0) > G.size(1)
-    if transposed:
-        X = X.T
-    for _ in range(steps):
-        A = X @ X.T
-        B = b * A + c * A @ A
-        X = a * X + B @ X
-    return X.T if transposed else X
-
-
-class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr, momentum, backend_steps, nesterov=True):
-        super().__init__(params, dict(lr=lr, momentum=momentum, backend_steps=backend_steps, nesterov=nesterov))
-
-    @torch.no_grad()
-    def step(self, closure=None):
-        distributed = dist.is_available() and dist.is_initialized()
-        world_size = dist.get_world_size() if distributed else 1
-        rank = dist.get_rank() if distributed else 0
-        for group in self.param_groups:
-            params = group["params"]
-            if not params:
-                continue
-            lr, momentum, backend_steps, nesterov = group["lr"], group["momentum"], group["backend_steps"], group["nesterov"]
-            total_params = sum(int(p.numel()) for p in params)
-            updates_flat = torch.zeros(total_params, device=params[0].device, dtype=torch.bfloat16)
-            curr = 0
-            for i, p in enumerate(params):
-                if i % world_size == rank and p.grad is not None:
-                    g = p.grad
-                    state = self.state[p]
-                    if "momentum_buffer" not in state:
-                        state["momentum_buffer"] = torch.zeros_like(g)
-                    buf = state["momentum_buffer"]
-                    buf.mul_(momentum).add_(g)
-                    if nesterov:
-                        g = g.add(buf, alpha=momentum)
-                    g = zeropower_via_newtonschulz5(g, steps=backend_steps)
-                    g *= max(1, g.size(0) / g.size(1)) ** 0.5
-                    updates_flat[curr: curr + p.numel()] = g.reshape(-1)
-                curr += p.numel()
-            if distributed:
-                dist.all_reduce(updates_flat, op=dist.ReduceOp.SUM)
-            curr = 0
-            for p in params:
-                g = updates_flat[curr: curr + p.numel()].view_as(p).to(dtype=p.dtype)
-                p.add_(g, alpha=-lr)
-                curr += p.numel()
-
-
-# -----------------------------
-# VALIDATION + QUANTIZATION (from baseline)
+# VALIDATION + QUANTIZATION
 # -----------------------------
 
 def build_sentencepiece_luts(sp, vocab_size, device):
@@ -330,63 +265,6 @@ def dequantize_state_dict_int8(obj):
 # MODEL
 # -----------------------------
 
-class CastedLinear(nn.Linear):
-    def forward(self, x):
-        return F.linear(x, self.weight.to(x.dtype), self.bias.to(x.dtype) if self.bias is not None else None)
-
-
-class Rotary(nn.Module):
-    def __init__(self, dim, base=10000.0):
-        super().__init__()
-        self.register_buffer("inv_freq", 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim)), persistent=False)
-        self._cache = (0, None, None)
-
-    def forward(self, seq_len, device, dtype):
-        if self._cache[0] != seq_len or self._cache[1] is None or self._cache[1].device != device:
-            t = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
-            freqs = torch.outer(t, self.inv_freq.to(device))
-            self._cache = (seq_len, freqs.cos()[None, None], freqs.sin()[None, None])
-        return self._cache[1].to(dtype), self._cache[2].to(dtype)
-
-
-def apply_rotary_emb(x, cos, sin):
-    h = x.size(-1) // 2
-    x1, x2 = x[..., :h], x[..., h:]
-    return torch.cat((x1 * cos + x2 * sin, x1 * (-sin) + x2 * cos), dim=-1)
-
-
-class CausalSelfAttention(nn.Module):
-    def __init__(self, dim, num_heads, num_kv_heads, rope_base, qk_gain_init):
-        super().__init__()
-        self.num_heads, self.num_kv_heads = num_heads, num_kv_heads
-        self.head_dim = dim // num_heads
-        kv_dim = num_kv_heads * self.head_dim
-        self.c_q = CastedLinear(dim, dim, bias=False)
-        self.c_k = CastedLinear(dim, kv_dim, bias=False)
-        self.c_v = CastedLinear(dim, kv_dim, bias=False)
-        self.proj = CastedLinear(dim, dim, bias=False)
-        self.proj._zero_init = True
-        self.q_gain = nn.Parameter(torch.full((num_heads,), qk_gain_init, dtype=torch.float32))
-        self.rotary = Rotary(self.head_dim, base=rope_base)
-
-    def forward(self, x):
-        B, T, D = x.shape
-        q = self.c_q(x).reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.c_k(x).reshape(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        v = self.c_v(x).reshape(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),))
-        cos, sin = self.rotary(T, x.device, q.dtype)
-        q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
-        q = q * self.q_gain.to(q.dtype)[None, :, None, None]
-        # Expand KV heads to match Q heads for older PyTorch without enable_gqa
-        if self.num_kv_heads != self.num_heads:
-            rep = self.num_heads // self.num_kv_heads
-            k = k.repeat_interleave(rep, dim=1)
-            v = v.repeat_interleave(rep, dim=1)
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-        return self.proj(y.transpose(1, 2).contiguous().reshape(B, T, D))
-
-
 def apply_activation(x, activation):
     if activation == "gelu":
         return F.gelu(x)
@@ -397,50 +275,75 @@ def apply_activation(x, activation):
     return F.gelu(x)
 
 
+class DepthwiseCausalConv1D(nn.Module):
+    """Causal depthwise conv — each word dim convolved independently over positions."""
+    def __init__(self, dim, kernel_size):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.weight = nn.Parameter(torch.randn(dim, 1, kernel_size) * 0.02)
+        self.bias = nn.Parameter(torch.zeros(dim))
+
+    def forward(self, x):
+        x = x.transpose(1, 2)  # (B, T, D) → (B, D, T)
+        x = F.pad(x, (self.kernel_size - 1, 0))
+        x = F.conv1d(x, self.weight.to(x.dtype), self.bias.to(x.dtype),
+                     groups=x.size(1))
+        return x.transpose(1, 2)
+
+
 class FourierRegisterOp(nn.Module):
-    """Vocabulary-space register operation. Each dim IS a word."""
+    """Vocabulary-space register operation."""
     def __init__(self, n_basis, n_channels, activation="gelu"):
         super().__init__()
         self.activation = activation
         s = 0.02
         self.read_coeffs = nn.Parameter(torch.randn(n_channels, 2 * n_basis) * s)
         self.write_coeffs = nn.Parameter(torch.randn(n_channels, 2 * n_basis) * s)
-        self.mix_weight = nn.Parameter(torch.randn(n_channels, n_channels) * s)
+        self.channel_mix = nn.Parameter(torch.randn(n_channels, n_channels) * s)
         self.bias = nn.Parameter(torch.zeros(n_channels))
         self.out_scale = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, x, basis):
-        # basis: (vocab_size, 2*n_basis) — Fourier over vocabulary indices
-        read_p = torch.softmax(basis @ self.read_coeffs.T, dim=0).to(x.dtype)  # (V, C)
-        values = x @ read_p  # (B, T, C)
-        values = values @ self.mix_weight.to(x.dtype) + self.bias.to(x.dtype)
+        read_p = torch.softmax(basis @ self.read_coeffs.T, dim=0).to(x.dtype)
+        values = x @ read_p
+        values = values @ self.channel_mix.to(x.dtype) + self.bias.to(x.dtype)
         values = apply_activation(values, self.activation)
-        write_p = (basis @ self.write_coeffs.T).to(x.dtype)  # (V, C)
+        write_p = (basis @ self.write_coeffs.T).to(x.dtype)
         return values @ write_p.T * self.out_scale.to(x.dtype)
 
 
-class VocabRegisterLM(nn.Module):
-    """Each register IS a word. No embedding. No output projection."""
-    def __init__(self, vocab_size, num_heads, num_kv_heads, num_steps, n_fourier_basis,
-                 n_channels, logit_softcap, rope_base, qk_gain_init, activation="gelu"):
+class RegisterStep(nn.Module):
+    """One LGP instruction: conv (cross-position) + Fourier op (within-position)."""
+    def __init__(self, dim, kernel_size, n_basis, n_channels, activation="gelu"):
+        super().__init__()
+        self.conv = DepthwiseCausalConv1D(dim, kernel_size)
+        self.register_op = FourierRegisterOp(n_basis, n_channels, activation)
+        self.conv_scale = nn.Parameter(torch.ones(dim))
+        self.op_scale = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x, basis):
+        D = x.size(-1)
+        x = x + self.conv_scale.to(x.dtype) * self.conv(F.rms_norm(x, (D,)))
+        x = x + self.op_scale.to(x.dtype) * self.register_op(F.rms_norm(x, (D,)), basis)
+        return x
+
+
+class ConvRegisterLM(nn.Module):
+    """Attention-free register machine. Each register IS a word."""
+    def __init__(self, vocab_size, num_steps, kernel_size, n_fourier_basis,
+                 n_channels, logit_softcap, activation="gelu"):
         super().__init__()
         dim = vocab_size
-        self.dim = dim
         self.vocab_size = vocab_size
-        self.logit_softcap = logit_softcap
         self.num_steps = num_steps
-        self.activation = activation
+        self.logit_softcap = logit_softcap
 
-        self.attn_norm = nn.Identity()  # rms_norm applied inline
-        self.shared_attn = CausalSelfAttention(dim, num_heads, num_kv_heads, rope_base, qk_gain_init)
-        self.register_ops = nn.ModuleList([FourierRegisterOp(n_fourier_basis, n_channels, activation) for _ in range(num_steps)])
-        self.op_norms = nn.ModuleList([nn.Identity() for _ in range(num_steps)])
-
-        self.attn_scales = nn.Parameter(torch.ones(num_steps, dim))
-        self.op_scales = nn.Parameter(torch.ones(num_steps, dim))
+        self.steps = nn.ModuleList([
+            RegisterStep(dim, kernel_size, n_fourier_basis, n_channels, activation)
+            for _ in range(num_steps)
+        ])
         self.logit_scale = nn.Parameter(torch.tensor(1.0))
 
-        # Fourier basis over vocabulary (frozen)
         positions = torch.arange(dim, dtype=torch.float32) / dim
         basis = torch.zeros(dim, 2 * n_fourier_basis)
         for k in range(n_fourier_basis):
@@ -448,30 +351,19 @@ class VocabRegisterLM(nn.Module):
             basis[:, 2 * k + 1] = torch.sin(2 * math.pi * (k + 1) * positions)
         self.register_buffer("fourier_basis", basis, persistent=True)
 
-        self._init_weights()
-
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear) and getattr(m, "_zero_init", False):
-                nn.init.zeros_(m.weight)
-
     def forward(self, input_ids, target_ids):
-        # One-hot: R["cat"] = 1.0
-        x = F.one_hot(input_ids, self.vocab_size).to(dtype=torch.bfloat16)
-        x = F.rms_norm(x, (x.size(-1),))
+        V = self.vocab_size
+        x = F.one_hot(input_ids, V).to(dtype=torch.bfloat16)
+        x = F.rms_norm(x, (V,))
         basis = self.fourier_basis
 
-        for step in range(self.num_steps):
-            attn_out = self.shared_attn(F.rms_norm(x, (x.size(-1),)))
-            x = x + self.attn_scales[step].to(x.dtype) * attn_out
-            op_out = self.register_ops[step](F.rms_norm(x, (x.size(-1),)), basis)
-            x = x + self.op_scales[step].to(x.dtype) * op_out
+        for step in self.steps:
+            x = step(x, basis)
 
-        x = F.rms_norm(x, (x.size(-1),))
-        # Register state IS logits — no projection needed
+        x = F.rms_norm(x, (V,))
         logits = x * self.logit_scale.to(x.dtype)
         logits = self.logit_softcap * torch.tanh(logits / self.logit_softcap)
-        return F.cross_entropy(logits.float().reshape(-1, self.vocab_size), target_ids.reshape(-1), reduction="mean")
+        return F.cross_entropy(logits.float().reshape(-1, V), target_ids.reshape(-1), reduction="mean")
 
 
 # -----------------------------
@@ -479,11 +371,8 @@ class VocabRegisterLM(nn.Module):
 # -----------------------------
 
 def main():
-    global zeropower_via_newtonschulz5
-
     code = Path(__file__).read_text(encoding="utf-8")
     args = Hyperparameters()
-    zeropower_via_newtonschulz5 = torch.compile(zeropower_via_newtonschulz5)
 
     distributed = "RANK" in os.environ and "WORLD_SIZE" in os.environ
     rank = int(os.environ.get("RANK", "0"))
@@ -531,25 +420,17 @@ def main():
     val_tokens = load_validation_tokens(args.val_files, args.train_seq_len)
     bbl, hsl, ibl = build_sentencepiece_luts(sp, args.vocab_size, device)
 
-    base_model = VocabRegisterLM(
+    base_model = ConvRegisterLM(
         vocab_size=args.vocab_size,
-        num_heads=args.num_heads,
-        num_kv_heads=args.num_kv_heads,
-        num_steps=args.num_recurrent_steps,
+        num_steps=args.num_steps,
+        kernel_size=args.kernel_size,
         n_fourier_basis=args.n_fourier_basis,
         n_channels=args.n_channels,
         logit_softcap=args.logit_softcap,
-        rope_base=args.rope_base,
-        qk_gain_init=args.qk_gain_init,
         activation=args.activation,
     ).to(device).bfloat16()
 
-    # Keep linear weights and small params in fp32
-    for m in base_model.modules():
-        if isinstance(m, CastedLinear):
-            m.float()
-        if isinstance(m, Rotary):
-            m.inv_freq.data = m.inv_freq.data.float()
+    # Keep small control params in fp32
     with torch.no_grad():
         for name, p in base_model.named_parameters():
             if (p.ndim < 2 or any(pat in name for pat in CONTROL_TENSOR_NAME_PATTERNS)) and p.dtype != torch.float32:
@@ -559,36 +440,29 @@ def main():
     compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True) if use_compile else base_model
     model = DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
 
-    # Optimizer: Muon for attention matrices, Adam for everything else
-    attn_matrix_params = [p for n, p in base_model.shared_attn.named_parameters() if p.ndim == 2 and "weight" in n]
-    scalar_params = [p for n, p in base_model.named_parameters()
-                     if not (n.startswith("shared_attn.") and p.ndim == 2 and "weight" in n)]
-
-    optimizer_muon = Muon(attn_matrix_params, lr=args.matrix_lr, momentum=args.muon_momentum, backend_steps=args.muon_backend_steps)
-    for g in optimizer_muon.param_groups:
-        g["base_lr"] = args.matrix_lr
-    optimizer_scalar = torch.optim.Adam(
-        [{"params": scalar_params, "lr": args.scalar_lr, "base_lr": args.scalar_lr}],
-        betas=(args.beta1, args.beta2), eps=args.adam_eps, fused=True,
+    # Single Adam optimizer for everything
+    optimizer = torch.optim.Adam(
+        base_model.parameters(),
+        lr=args.lr,
+        betas=(args.beta1, args.beta2),
+        eps=args.adam_eps,
+        weight_decay=args.weight_decay,
+        fused=True,
     )
-    optimizers = [optimizer_muon, optimizer_scalar]
+    for g in optimizer.param_groups:
+        g["base_lr"] = args.lr
 
     n_params = sum(p.numel() for p in base_model.parameters())
     n_trainable = sum(p.numel() for p in base_model.parameters() if p.requires_grad)
     log0(f"run_id:{args.run_id}")
-    log0(f"architecture:VocabRegisterLM (registers ARE words, PyTorch/CUDA)")
+    log0(f"architecture:ConvRegisterLM (attention-free, registers ARE words)")
     log0(f"model_params:{n_params} trainable:{n_trainable} vocab=dim={args.vocab_size}")
-    log0(f"heads:{args.num_heads} kv_heads:{args.num_kv_heads} steps:{args.num_recurrent_steps}")
-    log0(f"fourier:{args.n_fourier_basis} channels:{args.n_channels} activation:{args.activation}")
-    log0(f"NO embedding. NO output projection. Registers = vocabulary.")
+    log0(f"steps:{args.num_steps} kernel:{args.kernel_size} channels:{args.n_channels} fourier:{args.n_fourier_basis}")
+    log0(f"activation:{args.activation} lr:{args.lr} grad_clip:{args.grad_clip_norm}")
+    log0(f"NO attention. NO embedding. NO output projection.")
     log0(f"world_size:{world_size} grad_accum:{grad_accum_steps} batch:{args.train_batch_tokens}")
-    log0(f"muon_params:{len(attn_matrix_params)} scalar_params:{len(scalar_params)}")
 
     train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
-
-    def zero_grad_all():
-        for o in optimizers:
-            o.zero_grad(set_to_none=True)
 
     max_wc_ms = 1000.0 * args.max_wallclock_seconds if args.max_wallclock_seconds > 0 else None
 
@@ -605,14 +479,15 @@ def main():
 
     # Warmup
     for ws in range(args.warmup_steps):
-        zero_grad_all()
+        optimizer.zero_grad(set_to_none=True)
         for _ in range(grad_accum_steps):
             x, y = train_loader.next_batch(args.train_batch_tokens, args.train_seq_len, grad_accum_steps)
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 loss = model(x, y)
             (loss * grad_scale).backward()
-        for o in optimizers:
-            o.step()
+        if args.grad_clip_norm > 0:
+            torch.nn.utils.clip_grad_norm_(base_model.parameters(), args.grad_clip_norm)
+        optimizer.step()
         torch.cuda.synchronize()
         if master and (ws + 1) % 10 == 0 or ws + 1 == args.warmup_steps:
             log0(f"warmup:{ws + 1}/{args.warmup_steps}")
@@ -637,12 +512,11 @@ def main():
             break
 
         lm = lr_mul(step, train_ms + 1000.0 * (time.perf_counter() - t0))
-        for o in optimizers:
-            for g in o.param_groups:
-                g["lr"] = g["base_lr"] * lm
+        for g in optimizer.param_groups:
+            g["lr"] = g["base_lr"] * lm
 
         step_t0 = time.perf_counter()
-        zero_grad_all()
+        optimizer.zero_grad(set_to_none=True)
         train_loss_accum = 0.0
         for _ in range(grad_accum_steps):
             x, y = train_loader.next_batch(args.train_batch_tokens, args.train_seq_len, grad_accum_steps)
@@ -653,8 +527,7 @@ def main():
 
         if args.grad_clip_norm > 0:
             torch.nn.utils.clip_grad_norm_(base_model.parameters(), args.grad_clip_norm)
-        for o in optimizers:
-            o.step()
+        optimizer.step()
         torch.cuda.synchronize()
 
         step_ms = 1000.0 * (time.perf_counter() - step_t0)
