@@ -75,9 +75,9 @@ class AssociativeMemoryStep(nn.Module):
     def __init__(self, n_basis: int, n_channels: int, decay_init: float = 3.0):
         super().__init__()
         self.n_channels = n_channels
-        self.query_proj = FourierProjection(n_basis, n_channels, soft=True)
-        self.key_proj = FourierProjection(n_basis, n_channels, soft=True)
-        self.value_proj = FourierProjection(n_basis, n_channels, soft=True)
+        self.query_proj = FourierProjection(n_basis, n_channels, soft=False)
+        self.key_proj = FourierProjection(n_basis, n_channels, soft=False)
+        self.value_proj = FourierProjection(n_basis, n_channels, soft=False)
         self.output_proj = FourierProjection(n_basis, n_channels, soft=False)
         # decay_init=3.0 → sigmoid(3.0) ≈ 0.95
         self.decay_logit = nn.Parameter(torch.tensor(decay_init))

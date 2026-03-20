@@ -60,7 +60,7 @@ class Hyperparameters:
     decay_init = float(os.environ.get("DECAY_INIT", 3.0))
 
     # Optimizer
-    lr = float(os.environ.get("LR", 0.01))
+    lr = float(os.environ.get("LR", 0.03))
     beta1 = float(os.environ.get("BETA1", 0.9))
     beta2 = float(os.environ.get("BETA2", 0.999))
     adam_eps = float(os.environ.get("ADAM_EPS", 1e-8))
@@ -296,9 +296,9 @@ class AssociativeMemoryStep(nn.Module):
     def __init__(self, n_basis, n_channels, decay_init=3.0):
         super().__init__()
         self.n_channels = n_channels
-        self.query_proj = FourierProjection(n_basis, n_channels, soft=True)
-        self.key_proj = FourierProjection(n_basis, n_channels, soft=True)
-        self.value_proj = FourierProjection(n_basis, n_channels, soft=True)
+        self.query_proj = FourierProjection(n_basis, n_channels, soft=False)
+        self.key_proj = FourierProjection(n_basis, n_channels, soft=False)
+        self.value_proj = FourierProjection(n_basis, n_channels, soft=False)
         self.output_proj = FourierProjection(n_basis, n_channels, soft=False)
         self.decay_logit = nn.Parameter(torch.tensor(decay_init))
         self.out_scale = nn.Parameter(torch.tensor(0.1))
