@@ -1,31 +1,30 @@
 """
 v12: Sparse Register Machine — Hard sparse addressing from Linear GP.
 
-Key insight from linear-gp: instructions address SPECIFIC registers, not all of them.
-Each step operates on a LEARNED SUBSET of k registers out of V total.
-This gives full-rank operations in the active subspace (unlike v9's rank-64
-bottleneck) while keeping parameter count manageable.
+Key insight from linear-gp: instructions READ from source registers and
+WRITE to different destination registers. This is literally the LGP
+instruction format: {src_idx, tgt_idx, op}.
+
+Each step has separate read/write routing:
+  - READ set: which k registers to observe
+  - WRITE set: which k registers to modify (potentially different!)
+This enables information to FLOW across the register space — the one-hot
+signal at register j is read by one step and written to different registers,
+distributing the signal.
 
 Architecture:
   1. One-hot → register state (vocab-dimensional)
   2. N steps, each:
-     a. ROUTE: learned logits → top-k register selection (fixed per step)
-     b. GATHER: extract k active registers via differentiable gather
-     c. CROSS-POSITION: causal decay memory in k-dim (full-rank in subspace)
-     d. WITHIN-POSITION: MLP in k-dim
-     e. SCATTER: write delta back via differentiable scatter
+     a. READ:  gather k registers via pre-computed index buffer
+     b. CROSS: causal decay memory in k-dim (context from prior positions)
+     c. OP:    MLP transforms gathered → output (k-dim)
+     d. WRITE: matmul with pre-computed selector matrix → V-dim delta
   3. Register state → softcap → cross-entropy loss
 
-Compression advantage:
-  - Operations are k×k matrices (k << V), many fewer unique values
-  - Routing logits are V floats per step → tiny
-  - Inactive register dimensions carry no learned info → compress well
-
 From linear-gp:
-  - Hard register addressing (not soft like v7/v10)
-  - Fixed addressing per instruction (same for all positions/inputs)
-  - Diverse routing: each step's registers are initialized non-overlapping
-  - Gradients flow through gather → transforms → scatter (standard autograd)
+  - Separate source/destination addressing per instruction
+  - Hard register addressing (fixed per instruction, not input-dependent)
+  - Shared op patterns across instructions (via similar MLP structure)
 
 No embedding. No output projection. No Fourier. No attention.
 """
@@ -38,14 +37,11 @@ from torch import Tensor
 
 
 class CausalDecayMemory(nn.Module):
-    """Cross-position mixing via causal decay in the sparse subspace.
-
-    Same mechanism as v9's QTable, but operating in the k-dim subspace
-    of active registers instead of projecting from full V-dim.
-    """
+    """Cross-position mixing via causal decay in the sparse subspace."""
 
     def __init__(self, dim: int, decay_init: float = 3.0):
         super().__init__()
+        self.dim = dim
         self.q_proj = nn.Linear(dim, dim, bias=False)
         self.k_proj = nn.Linear(dim, dim, bias=False)
         self.v_proj = nn.Linear(dim, dim, bias=False)
@@ -58,15 +54,15 @@ class CausalDecayMemory(nn.Module):
         self.out_scale = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, x: Tensor) -> Tensor:
-        """x: (B, T, k) → (B, T, k)"""
         B, T, k = x.shape
         dtype = x.dtype
+        scale = 1.0 / math.sqrt(self.dim)
 
         q = self.q_proj(x.float()).to(dtype)
         k_ = self.k_proj(x.float()).to(dtype)
         v = self.v_proj(x.float()).to(dtype)
 
-        scores = torch.bmm(q, k_.transpose(1, 2))  # (B, T, T)
+        scores = torch.bmm(q, k_.transpose(1, 2)) * scale
 
         decay = torch.sigmoid(self.decay_logit)
         pos = torch.arange(T, device=x.device)
@@ -79,46 +75,12 @@ class CausalDecayMemory(nn.Module):
         return self.o_proj(retrieved.float()).to(dtype) * self.out_scale.to(dtype)
 
 
-class SparseMLP(nn.Module):
-    """Within-position transform in the sparse subspace."""
-
-    def __init__(self, dim: int, inner_dim: int, activation: str = "gelu"):
-        super().__init__()
-        self.activation = activation
-        self.down = nn.Linear(dim, inner_dim, bias=False)
-        self.up = nn.Linear(inner_dim, dim, bias=False)
-        self.bias = nn.Parameter(torch.zeros(inner_dim))
-        self.out_scale = nn.Parameter(torch.tensor(0.1))
-
-        nn.init.normal_(self.down.weight, std=0.02)
-        nn.init.normal_(self.up.weight, std=0.02)
-
-    def forward(self, x: Tensor) -> Tensor:
-        dtype = x.dtype
-        h = self.down(x.float()) + self.bias
-        if self.activation == "relu":
-            h = F.relu(h)
-        elif self.activation == "relu2":
-            h = F.relu(h).square()
-        elif self.activation == "swish":
-            h = F.silu(h)
-        else:
-            h = F.gelu(h)
-        return self.up(h).to(dtype) * self.out_scale.to(dtype)
-
-
 class SparseRegisterStep(nn.Module):
-    """One instruction: sparse route → gather → transform → scatter.
+    """One LGP instruction: READ src → transform → WRITE tgt.
 
-    Each step has a fixed routing pattern (same indices for all positions
-    and inputs), like LGP's hard-coded register addresses. The routing
-    is initialized to be diverse across steps — each step "owns" a
-    primary set of registers, with overlap for information flow.
-
-    Gradient flow: gather and scatter are both differentiable in PyTorch.
-    Gradients flow from loss → scatter → transforms → gather → x.
-    The route_logits themselves don't get gradients (topk is discrete),
-    which is by design: routing is structural, not dynamic.
+    Routing indices and selector matrices are pre-computed at init time
+    as non-parameter buffers. The forward pass uses only standard ops
+    (gather, matmul) that are fully DDP-compatible.
     """
 
     def __init__(self, vocab_size: int, k_active: int, inner_mul: int = 2,
@@ -128,73 +90,93 @@ class SparseRegisterStep(nn.Module):
         self.vocab_size = vocab_size
         self.k_active = k_active
 
-        # Initialize routing so each step addresses a different set.
-        # Use a shifted pattern: step i gets registers starting at offset i*V/N,
-        # wrapping around. This ensures full coverage across all steps.
-        route_init = torch.zeros(vocab_size)
-        stride = vocab_size / total_steps
-        offset = int(step_idx * stride)
-        for j in range(k_active):
-            idx = (offset + j) % vocab_size
-            route_init[idx] = 1.0 + torch.randn(1).item() * 0.01
-        self.route_logits = nn.Parameter(route_init)
+        # Pre-compute routing indices deterministically (no randomness).
+        # Read and write sets are staggered across steps for diversity.
+        stride = vocab_size // total_steps if total_steps > 0 else vocab_size
+        read_offset = (step_idx * stride) % vocab_size
+        write_offset = (read_offset + vocab_size // 2) % vocab_size
 
-        # Cross-position: causal decay memory in k-dim (full-rank!)
+        read_indices = torch.tensor(
+            [(read_offset + j) % vocab_size for j in range(k_active)],
+            dtype=torch.long)
+        write_indices = torch.tensor(
+            [(write_offset + j) % vocab_size for j in range(k_active)],
+            dtype=torch.long)
+
+        # Pre-compute write selector: (k, V) one-hot rows for matmul scatter
+        write_selector = torch.zeros(k_active, vocab_size)
+        write_selector[torch.arange(k_active), write_indices] = 1.0
+
+        self.register_buffer("read_indices", read_indices)
+        self.register_buffer("write_selector", write_selector)
+
+        # Cross-position: causal decay memory in k-dim
         self.memory = CausalDecayMemory(k_active, decay_init)
 
-        # Within-position: MLP in k-dim
-        self.mlp = SparseMLP(k_active, k_active * inner_mul, activation)
+        # Within-position: MLP k → inner → k
+        inner_dim = k_active * inner_mul
+        self.down = nn.Linear(k_active, inner_dim, bias=False)
+        self.up = nn.Linear(inner_dim, k_active, bias=False)
+        self.mlp_bias = nn.Parameter(torch.zeros(inner_dim))
+        self.activation = activation
 
+        init_std = 0.1
+        nn.init.normal_(self.down.weight, std=init_std)
+        nn.init.normal_(self.up.weight, std=init_std)
+
+        self.inv_sqrt_k = 1.0 / math.sqrt(k_active)
         self.mem_scale = nn.Parameter(torch.ones(1))
-        self.mlp_scale = nn.Parameter(torch.ones(1))
+        self.write_scale = nn.Parameter(torch.tensor(0.1))
+
+    def _mlp(self, x: Tensor) -> Tensor:
+        dtype = x.dtype
+        h = self.down(x.float()) + self.mlp_bias
+        if self.activation == "relu":
+            h = F.relu(h)
+        elif self.activation == "relu2":
+            h = F.relu(h).square()
+        elif self.activation == "swish":
+            h = F.silu(h)
+        else:
+            h = F.gelu(h)
+        return self.up(h).to(dtype)
 
     def forward(self, x: Tensor) -> Tensor:
-        """x: (B, T, V) → (B, T, V)"""
         B, T, V = x.shape
         dtype = x.dtype
         k = self.k_active
 
-        # ROUTE: select top-k registers (fixed per step, same for all positions)
-        _, indices = self.route_logits.topk(k)  # (k,)
-        idx = indices.unsqueeze(0).unsqueeze(0).expand(B, T, -1)  # (B, T, k)
+        # READ: gather from source registers using pre-computed indices
+        read_idx = self.read_indices.unsqueeze(0).unsqueeze(0).expand(B, T, -1)
+        gathered = torch.gather(x, -1, read_idx)  # (B, T, k)
 
-        # GATHER: extract k registers (differentiable w.r.t. x)
-        gathered = torch.gather(x, -1, idx)  # (B, T, k)
-
-        # CROSS-POSITION in sparse subspace
+        # CROSS-POSITION: context from prior positions (residual on gathered)
         g_norm = F.rms_norm(gathered, (k,))
-        mem_out = self.memory(g_norm)
-        gathered = gathered + self.mem_scale.to(dtype) * mem_out
+        gathered = gathered + self.mem_scale.to(dtype) * self.memory(g_norm)
 
-        # WITHIN-POSITION in sparse subspace
+        # OP: transform gathered → output (pure output, not residual)
         g_norm = F.rms_norm(gathered, (k,))
-        mlp_out = self.mlp(g_norm)
-        gathered = gathered + self.mlp_scale.to(dtype) * mlp_out
+        output = self._mlp(g_norm)  # (B, T, k)
 
-        # SCATTER: write transformed values back (differentiable)
-        # delta = what the transforms added (gathered_new - gathered_old)
-        original = torch.gather(x, -1, idx)
-        delta = gathered - original
+        # Scale by 1/sqrt(k) to counteract gradient concentration
+        output = output * (self.write_scale.to(dtype) * self.inv_sqrt_k)
 
-        # Non-in-place scatter: creates proper autograd graph
-        # Gradients flow: output → delta → transforms → gathered → x
-        delta_full = torch.zeros_like(x).scatter(-1, idx, delta)
-        return x + delta_full
+        # WRITE: matmul with pre-computed selector (k,V) → full V-dim delta
+        # This replaces scatter with a standard matmul — fully DDP-safe.
+        # output: (B, T, k) @ write_selector: (k, V) → (B, T, V)
+        write_full = output @ self.write_selector.to(dtype)
+        return x + write_full
 
 
 class SparseRegisterGPT(nn.Module):
     """Language model with sparse register addressing.
 
-    Each step addresses only k out of V registers, operating at full rank
-    in the active subspace. Cross-position memory runs at k×k instead of
-    V×d, giving higher effective rank per parameter than v9's bottleneck.
+    Each step reads from k source registers and writes to k (different)
+    destination registers. This enables information to flow across the
+    full register space through a chain of read→transform→write steps.
 
-    Compare to v9 (state_dim=64):
-      v9:  cross-position is rank-64 in V=1024 space (V→64→V projection)
-      v12: cross-position is rank-k in k-dim space (full-rank within subset)
-
-    Routing is initialized so steps tile the register space with overlap,
-    ensuring every register is touched by at least one step.
+    The routing is fixed per step (not input-dependent), initialized
+    with staggered read/write patterns for diversity and coverage.
 
     No embedding. No output projection. No Fourier. No attention.
     """
