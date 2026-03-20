@@ -105,8 +105,11 @@ class SharedAttention(nn.Module):
         q, k = apply_rotary(q, cos, sin), apply_rotary(k, cos, sin)
         q = q * self.q_gain.to(q.dtype)[None, :, None, None]
 
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=True,
-                                           enable_gqa=(nkv != nh))
+        if nkv != nh:
+            rep = nh // nkv
+            k = k.repeat_interleave(rep, dim=1)
+            v = v.repeat_interleave(rep, dim=1)
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         return self.out_proj(y.transpose(1, 2).contiguous().reshape(B, T, D))
 
 

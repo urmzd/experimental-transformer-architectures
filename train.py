@@ -62,6 +62,15 @@ class Hyperparameters:
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
     decay_init = float(os.environ.get("DECAY_INIT", 3.0))
 
+    # v1-specific
+    num_heads = int(os.environ.get("NUM_HEADS", 8))
+    num_kv_heads = int(os.environ.get("NUM_KV_HEADS", 4))
+    rope_base = float(os.environ.get("ROPE_BASE", 10000.0))
+    qk_gain_init = float(os.environ.get("QK_GAIN_INIT", 1.5))
+
+    # v2-specific
+    kernel_size = int(os.environ.get("KERNEL_SIZE", 16))
+
     # v4-specific
     n_heads = int(os.environ.get("N_HEADS", 4))
     transform_rank = int(os.environ.get("TRANSFORM_RANK", 8))
@@ -637,7 +646,32 @@ def main():
     val_tokens = load_validation_tokens(args.val_files, args.train_seq_len)
     bbl, hsl, ibl = build_sentencepiece_luts(sp, args.vocab_size, device)
 
-    if args.model_version == "wave":
+    if args.model_version == "v1":
+        from v1_shared_attention.model import RegisterGPT as RegisterGPTv1
+        base_model = RegisterGPTv1(
+            vocab_size=args.vocab_size,
+            num_heads=args.num_heads,
+            num_kv_heads=args.num_kv_heads,
+            num_steps=args.num_steps,
+            n_fourier_basis=args.n_fourier_basis,
+            n_channels=args.n_channels,
+            logit_softcap=args.logit_softcap,
+            rope_base=args.rope_base,
+            qk_gain_init=args.qk_gain_init,
+            activation=args.activation,
+        ).to(device).bfloat16()
+    elif args.model_version == "v2":
+        from v2_causal_conv.model import RegisterGPT as RegisterGPTv2
+        base_model = RegisterGPTv2(
+            vocab_size=args.vocab_size,
+            num_steps=args.num_steps,
+            kernel_size=args.kernel_size,
+            n_fourier_basis=args.n_fourier_basis,
+            n_channels=args.n_channels,
+            logit_softcap=args.logit_softcap,
+            activation=args.activation,
+        ).to(device).bfloat16()
+    elif args.model_version == "wave":
         from v6_brain_wave.model import BrainWaveGPT
         band_split = tuple(int(x) for x in args.band_split.split(","))
         base_model = BrainWaveGPT(

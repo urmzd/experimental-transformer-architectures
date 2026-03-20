@@ -6,6 +6,8 @@ import sys
 
 
 MODELS = [
+    {"version": "v1",     "env": {"NUM_STEPS": "8"}},
+    {"version": "v2",     "env": {"NUM_STEPS": "16"}},
     {"version": "v3",     "env": {}},
     {"version": "v4",     "env": {}},
     {"version": "gauss",  "env": {"N_FOURIER_BASIS": "64"}},
