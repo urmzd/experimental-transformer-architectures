@@ -55,7 +55,7 @@ class Hyperparameters:
     num_kv_heads = int(os.environ.get("NUM_KV_HEADS", 4))
     num_recurrent_steps = int(os.environ.get("NUM_RECURRENT_STEPS", 24))
     n_fourier_basis = int(os.environ.get("N_FOURIER_BASIS", 16))
-    n_channels = int(os.environ.get("N_CHANNELS", 8))
+    n_channels = int(os.environ.get("N_CHANNELS", 32))
     activation = os.environ.get("ACTIVATION", "gelu")
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
     rope_base = float(os.environ.get("ROPE_BASE", 10000.0))
@@ -407,7 +407,7 @@ class FourierRegisterOp(nn.Module):
         self.write_coeffs = nn.Parameter(torch.randn(n_channels, 2 * n_basis) * s)
         self.mix_weight = nn.Parameter(torch.randn(n_channels, n_channels) * s)
         self.bias = nn.Parameter(torch.zeros(n_channels))
-        self.out_scale = nn.Parameter(torch.tensor(0.01))
+        self.out_scale = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, x, basis):
         # basis: (vocab_size, 2*n_basis) — Fourier over vocabulary indices
@@ -489,7 +489,7 @@ def main():
     rank = int(os.environ.get("RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    grad_accum_steps = int(os.environ.get("GRAD_ACCUM_STEPS", str(8 // world_size)))
+    grad_accum_steps = int(os.environ.get("GRAD_ACCUM_STEPS", "16"))
     grad_scale = 1.0 / grad_accum_steps
 
     if not torch.cuda.is_available():

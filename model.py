@@ -152,7 +152,7 @@ class FourierRegisterOp(nn.Module):
         self.write_coeffs = nn.Parameter(torch.randn(n_channels, 2 * n_basis) * s)
         self.channel_mix = nn.Parameter(torch.randn(n_channels, n_channels) * s)
         self.bias = nn.Parameter(torch.zeros(n_channels))
-        self.out_scale = nn.Parameter(torch.tensor(0.01))
+        self.out_scale = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, x: Tensor, basis: Tensor) -> Tensor:
         # Read: which words to gather, weighted by Fourier pattern
@@ -188,7 +188,7 @@ class RegisterGPT(nn.Module):
 
     def __init__(self, vocab_size: int = 1024, num_heads: int = 8,
                  num_kv_heads: int = 4, num_steps: int = 24,
-                 n_fourier_basis: int = 16, n_channels: int = 8,
+                 n_fourier_basis: int = 16, n_channels: int = 32,
                  logit_softcap: float = 30.0, rope_base: float = 10_000.0,
                  qk_gain_init: float = 1.5, activation: str = "gelu"):
         super().__init__()
