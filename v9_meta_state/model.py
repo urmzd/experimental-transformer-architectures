@@ -119,7 +119,7 @@ class RegisterTransform(nn.Module):
         self.out_scale = nn.Parameter(torch.tensor(0.1))
 
         nn.init.normal_(self.down.weight, std=0.02)
-        nn.init.zeros_(self.up.weight)
+        nn.init.normal_(self.up.weight, std=0.02)
 
     def forward(self, x: Tensor) -> Tensor:
         dtype = x.dtype
