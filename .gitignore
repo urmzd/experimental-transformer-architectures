@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+logs/
+*.npz
+*.pt
+*.ptz
+.DS_Store
+data/
