@@ -9,9 +9,11 @@ cd /workspace
 [ -d exp-agi-models ] || git clone https://github.com/urmzd/exp-agi-models.git
 cd exp-agi-models
 
-# Install deps and download data
-uv sync
-uv run setup-data --variant sp1024
+# Install deps into system Python (torchrun uses system Python, not venv)
+uv pip install --system -r pyproject.toml
+
+# Download data
+python data/download_data.py --variant sp1024
 
 echo "Setup complete. Run training with:"
 echo "  cd /workspace/exp-agi-models"

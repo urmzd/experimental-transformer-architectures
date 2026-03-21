@@ -17,9 +17,11 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 grep -q '.local/bin' ~/.bashrc 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# Install deps and download data
-uv sync
-uv run setup-data --variant sp1024
+# Install deps into system Python (torchrun uses system Python, not venv)
+uv pip install --system -r pyproject.toml
+
+# Download data
+python data/download_data.py --variant sp1024
 
 echo ""
 echo "=== Ready ==="
