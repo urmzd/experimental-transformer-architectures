@@ -82,8 +82,8 @@ v12:    Sparse register addressing?          → Top-k subspace ops, full-rank i
 curl -sSL https://raw.githubusercontent.com/urmzd/exp-agi-models/main/bootstrap.sh | bash
 
 # Or manually
-pip install huggingface_hub sentencepiece
-python data/download_data.py --variant sp1024
+uv sync
+uv run setup-data --variant sp1024
 
 # Train (pick a model)
 MODEL_VERSION=meta      torchrun --standalone --nproc_per_node=1 train.py  # v9 Q-table

@@ -1,12 +1,17 @@
 [project]
-name = "registergpt"
+name = "exp-agi-models"
 version = "0.1.0"
 description = "A language model where each register is a word"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "sentencepiece",
+    "huggingface_hub",
+    "pydantic-settings>=2.13.1",
 ]
+
+[project.scripts]
+setup-data = "data.download_data:main"
 
 [project.optional-dependencies]
 cuda = [
