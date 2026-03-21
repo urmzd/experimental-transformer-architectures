@@ -147,6 +147,41 @@ REGISTRY = {
             parallel_waves=a.parallel_waves, grad_checkpoint=a.grad_checkpoint,
         ),
     },
+    "adaptive": {
+        "module": "v14_adaptive.model",
+        "class_name": "AdaptiveGPT",
+        "kwargs": lambda a: dict(
+            vocab_size=a.vocab_size, num_steps=a.num_steps,
+            k_active=a.k_active, kernel_size=a.kernel_size,
+            n_fourier_basis=a.n_fourier_basis, n_channels=a.n_channels,
+            logit_softcap=a.logit_softcap, activation=a.activation,
+            decay_init=a.decay_init,
+        ),
+    },
+    "predictive": {
+        "module": "v15_predictive.model",
+        "class_name": "PredictiveGPT",
+        "kwargs": lambda a: dict(
+            vocab_size=a.vocab_size, num_steps=a.num_steps,
+            k_active=a.k_active, inner_mul=a.inner_mul,
+            logit_softcap=a.logit_softcap, activation=a.activation,
+            decay_init=a.decay_init, sparsity_k=a.sparsity_k,
+            aux_loss_weight=a.aux_loss_weight,
+            aux_loss_decay=a.aux_loss_decay,
+        ),
+    },
+    "columnar": {
+        "module": "v16_columnar.model",
+        "class_name": "ColumnarGPT",
+        "kwargs": lambda a: dict(
+            vocab_size=a.vocab_size, num_columns=a.num_columns,
+            steps_per_column=a.steps_per_column, k_active=a.k_active,
+            inner_mul=a.inner_mul, n_branches=a.n_branches,
+            n_fourier_basis=a.n_fourier_basis, n_channels=a.n_channels,
+            logit_softcap=a.logit_softcap, activation=a.activation,
+            decay_init=a.decay_init,
+        ),
+    },
 }
 
 

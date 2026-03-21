@@ -18,6 +18,7 @@ from pathlib import Path
 ALL_VERSIONS = [
     "v1", "v2", "v3", "v4", "gauss", "wave", "lgp",
     "graph", "meta", "policy", "brainwave", "tpg", "sparse", "embed",
+    "adaptive", "predictive", "columnar",
 ]
 
 

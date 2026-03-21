@@ -104,6 +104,18 @@ class SparseRegisterConfig(BaseSettings):
     embed_dim: int = 128
 
 
+class PredictiveConfig(BaseSettings):
+    sparsity_k: int = 128
+    aux_loss_weight: float = 0.1
+    aux_loss_decay: float = 0.9
+
+
+class ColumnarConfig(BaseSettings):
+    num_columns: int = 4
+    steps_per_column: int = 3
+    n_branches: int = 4
+
+
 class OptimizerConfig(BaseSettings):
     lr: float = 0.03
     beta1: float = 0.9
@@ -135,13 +147,16 @@ class Hyperparameters:
         self.meta = MetaStateConfig()
         self.tpg = TpgConfig()
         self.sparse = SparseRegisterConfig()
+        self.predictive = PredictiveConfig()
+        self.columnar = ColumnarConfig()
         self.optimizer = OptimizerConfig()
         self.distributed = DistributedConfig()
         self._groups = [
             self.data, self.run, self.schedule, self.model_common,
             self.v1, self.v2, self.v4, self.wave, self.lgp,
-            self.graph, self.meta, self.tpg, self.sparse, self.optimizer,
-            self.distributed,
+            self.graph, self.meta, self.tpg, self.sparse,
+            self.predictive, self.columnar,
+            self.optimizer, self.distributed,
         ]
 
     def __getattr__(self, name: str):
