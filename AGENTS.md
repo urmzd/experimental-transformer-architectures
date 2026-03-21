@@ -78,6 +78,8 @@ train.py
 | `MAX_WALLCLOCK_SECONDS` | None | Wall-clock time limit (must be set manually, no default) |
 | `ITERATIONS` | 500 | Max training iterations |
 | `TORCH_COMPILE` | 0 | Enable torch.compile |
+| `ROUNDTRIP_EVAL` | 0 | Run int8 quantization roundtrip eval after training |
+| `NCCL_P2P_DISABLE` | 1 | Disable NCCL P2P; required on RunPod where GPUs span PCIe root complexes |
 
 ## File conventions
 

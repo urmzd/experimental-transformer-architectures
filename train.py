@@ -140,6 +140,13 @@ class OptimizerConfig(BaseSettings):
     grad_clip_norm: float = 1.0
 
 
+class DistributedConfig(BaseSettings):
+    nccl_p2p_disable: str = "1"
+    grad_accum_steps: int = 16
+    torch_compile: bool = False
+    roundtrip_eval: bool = False
+
+
 class Hyperparameters:
     def __init__(self) -> None:
         self.data = DataConfig()
@@ -156,10 +163,12 @@ class Hyperparameters:
         self.tpg = TpgConfig()
         self.sparse = SparseRegisterConfig()
         self.optimizer = OptimizerConfig()
+        self.distributed = DistributedConfig()
         self._groups = [
             self.data, self.run, self.schedule, self.model_common,
             self.v1, self.v2, self.v4, self.wave, self.lgp,
             self.graph, self.meta, self.tpg, self.sparse, self.optimizer,
+            self.distributed,
         ]
 
     def __getattr__(self, name: str):
@@ -678,17 +687,24 @@ def main():
     rank = int(os.environ.get("RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    grad_accum_steps = int(os.environ.get("GRAD_ACCUM_STEPS", "16"))
+    grad_accum_steps = args.grad_accum_steps
     grad_scale = 1.0 / grad_accum_steps
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA required")
     device = torch.device("cuda", local_rank)
     torch.cuda.set_device(device)
-    if distributed:
-        dist.init_process_group(backend="nccl")
-        dist.barrier()
     master = rank == 0
+    if distributed:
+        os.environ["NCCL_P2P_DISABLE"] = args.nccl_p2p_disable
+        if master:
+            print(f"[init] NCCL_P2P_DISABLE={args.nccl_p2p_disable}, calling init_process_group")
+        dist.init_process_group(backend="nccl")
+        if master:
+            print("[init] init_process_group done, waiting on barrier")
+        dist.barrier()
+        if master:
+            print("[init] DDP barrier passed")
 
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -715,16 +731,14 @@ def main():
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    print(f"[rank {rank}] loading tokenizer", flush=True)
+    log0(f"[init] loading tokenizer from {args.tokenizer_path}")
     sp = spm.SentencePieceProcessor(model_file=args.tokenizer_path)
     if int(sp.vocab_size()) != args.vocab_size:
-        raise ValueError(f"VOCAB_SIZE mismatch")
-    print(f"[rank {rank}] loading validation data", flush=True)
+        raise ValueError(f"VOCAB_SIZE mismatch: tokenizer has {sp.vocab_size()}, expected {args.vocab_size}")
+    log0(f"[init] loading validation data from {args.val_files}")
     val_tokens = load_validation_tokens(args.val_files, args.train_seq_len)
-    print(f"[rank {rank}] building sentencepiece luts", flush=True)
     bbl, hsl, ibl = build_sentencepiece_luts(sp, args.vocab_size, device)
-    print(f"[rank {rank}] data loaded: {val_tokens.numel()} val tokens", flush=True)
-    print(f"[rank {rank}] building model: {args.model_version}", flush=True)
+    log0(f"[init] data loaded: {val_tokens.numel()} val tokens")
 
     if args.model_version == "v1":
         from v1_shared_attention.model import RegisterGPT as RegisterGPTv1
@@ -886,12 +900,9 @@ def main():
     n_params = sum(p.numel() for p in base_model.parameters())
     log0(f"[init] model built: {n_params/1e3:.0f}K params on {device}")
 
-    use_compile = bool(int(os.environ.get("TORCH_COMPILE", "0")))
-    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True) if use_compile else base_model
+    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True) if args.torch_compile else base_model
     if distributed:
-        print(f"[rank {rank}] reached DDP barrier", flush=True)
         dist.barrier()
-        print(f"[rank {rank}] passed DDP barrier, calling DDP()", flush=True)
     log0(f"[init] wrapping with DDP (distributed={distributed})")
     model = DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
     log0(f"[init] DDP ready")
@@ -1052,7 +1063,7 @@ def main():
         Path(qpath).write_bytes(compressed)
         log0(f"quantized:{qpath} bytes:{len(compressed)} ratio:{qstats['baseline_tensor_bytes'] / max(qstats['int8_payload_bytes'], 1):.2f}x")
 
-        if bool(int(os.environ.get("ROUNDTRIP_EVAL", "0"))):
+        if args.roundtrip_eval:
             dq = dequantize_state_dict_int8(torch.load(io.BytesIO(zlib.decompress(Path(qpath).read_bytes())), weights_only=False))
             base_model.load_state_dict(dq, strict=False)
             qvl, qvbpb = eval_val(args, model, rank, world_size, device, grad_accum_steps, val_tokens, bbl, hsl, ibl)
