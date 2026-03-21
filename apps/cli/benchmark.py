@@ -47,15 +47,21 @@ def run_one(version: str, minutes: float, batch: int, warmup: int, nproc: int) -
     print(f"\n{'='*60}")
     print(f"  MODEL_VERSION={version}  ({minutes}min, batch={batch})")
     print(f"{'='*60}")
-    result = subprocess.run(cmd, env=env, text=True, capture_output=True)
-    sys.stdout.write(result.stdout)
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        print(f"  FAILED (exit {result.returncode})")
+    sys.stdout.flush()
+    proc = subprocess.Popen(cmd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output_lines = []
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        output_lines.append(line)
+    proc.wait()
+
+    if proc.returncode != 0:
+        print(f"  FAILED (exit {proc.returncode})")
         return None
 
-    # Find the manifest from stdout
-    for line in result.stdout.splitlines():
+    # Find the manifest from output
+    for line in output_lines:
         if "manifest:" in line:
             manifest_path = line.split("manifest:", 1)[1].strip()
             if Path(manifest_path).exists():
