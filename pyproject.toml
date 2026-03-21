@@ -21,9 +21,12 @@ cuda = [
 mlx = [
     "mlx>=0.16",
 ]
+dev = [
+    "pytest>=8",
+]
 
 [tool.setuptools.packages.find]
-include = ["data"]
+include = ["data", "core"]
 
 [tool.uv]
 default-groups = []

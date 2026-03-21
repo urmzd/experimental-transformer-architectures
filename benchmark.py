@@ -16,130 +16,11 @@ import argparse
 import sys
 import time
 import traceback
+from types import SimpleNamespace
 
 import torch
-import torch.nn.functional as F
 
-
-# ---------------------------------------------------------------------------
-# Model registry: version -> (constructor, kwargs)
-# ---------------------------------------------------------------------------
-
-def _build_registry(vocab_size: int, num_steps: int, n_channels: int,
-                    n_fourier_basis: int, logit_softcap: float,
-                    decay_init: float):
-    """Return {version_name: callable() -> model}."""
-
-    common = dict(vocab_size=vocab_size, logit_softcap=logit_softcap)
-
-    registry = {}
-
-    # v1 — shared attention
-    def make_v1():
-        from v1_shared_attention.model import RegisterGPT
-        return RegisterGPT(
-            num_heads=8, num_kv_heads=4, num_steps=num_steps,
-            n_fourier_basis=n_fourier_basis, n_channels=n_channels,
-            rope_base=10000.0, qk_gain_init=1.5, activation="gelu", **common)
-    registry["v1"] = make_v1
-
-    # v2 — causal conv
-    def make_v2():
-        from v2_causal_conv.model import RegisterGPT
-        return RegisterGPT(
-            num_steps=num_steps, kernel_size=16,
-            n_fourier_basis=n_fourier_basis, n_channels=n_channels,
-            activation="gelu", **common)
-    registry["v2"] = make_v2
-
-    # v3 — associative memory (inline in train.py)
-    def make_v3():
-        from train import AssocRegisterLM
-        return AssocRegisterLM(
-            num_steps=num_steps, n_fourier_basis=n_fourier_basis,
-            n_channels=n_channels, activation="gelu",
-            decay_init=decay_init, **common)
-    registry["v3"] = make_v3
-
-    # v4 — param optimized
-    def make_v4():
-        from v4_param_optimized.model import RegisterGPTv4
-        return RegisterGPTv4(
-            unique_steps=5, invocations_per_step=2,
-            n_fourier_basis=n_fourier_basis, n_channels=n_channels,
-            n_heads=4, transform_rank=8, activation="gelu",
-            decay_init=decay_init, **common)
-    registry["v4"] = make_v4
-
-    # gauss — FFT-based (run_all.py uses N_FOURIER_BASIS=64 for gauss)
-    def make_gauss():
-        from train import GaussRegisterGPT
-        gauss_n_freq = max(n_fourier_basis, 64)  # needs enough freq bins
-        return GaussRegisterGPT(
-            num_steps=num_steps, n_freq=gauss_n_freq,
-            n_channels=n_channels, activation="gelu",
-            decay_init=decay_init, **common)
-    registry["gauss"] = make_gauss
-
-    # wave — brain wave
-    def make_wave():
-        from v6_brain_wave.model import BrainWaveGPT
-        return BrainWaveGPT(
-            num_cycles=num_steps, n_fourier_basis=n_fourier_basis,
-            n_channels=n_channels, activation="gelu",
-            slow_decay_init=4.0, fast_decay_init=2.0,
-            band_split=(4, 4, 8), **common)
-    registry["wave"] = make_wave
-
-    # lgp — linear genetic programming
-    def make_lgp():
-        from v7_lgp.model import LGPGPT
-        return LGPGPT(
-            num_instructions=num_steps, n_fourier_basis=n_fourier_basis,
-            n_channels=64, n_ops=8, decay_init=decay_init, **common)
-    registry["lgp"] = make_lgp
-
-    # graph — word graph
-    def make_graph():
-        from v8_word_graph.model import WordGraphGPT
-        return WordGraphGPT(
-            num_hops=num_steps, interaction_rank=64,
-            activation="gelu", decay_init=decay_init, **common)
-    registry["graph"] = make_graph
-
-    # meta — Q-table meta-state
-    def make_meta():
-        from v9_meta_state.model import MetaStateGPT
-        return MetaStateGPT(
-            num_steps=num_steps, state_dim=64, inner_dim=128,
-            activation="gelu", decay_init=decay_init, **common)
-    registry["meta"] = make_meta
-
-    # policy — state-dependent policy
-    def make_policy():
-        from v10_policy.model import PolicyGPT
-        return PolicyGPT(
-            num_steps=num_steps, state_dim=64, n_ops=8,
-            decay_init=decay_init, **common)
-    registry["policy"] = make_policy
-
-    # v11 — brainwave (5 oscillatory primitives)
-    def make_brainwave():
-        from v11_brainwave.model import BrainWaveGPT
-        return BrainWaveGPT(
-            num_steps=num_steps, state_dim=64, inner_dim=128,
-            gate_dim=64, **common)
-    registry["brainwave"] = make_brainwave
-
-    # sparse — sparse register addressing (v12)
-    def make_sparse():
-        from v12_sparse_register.model import SparseRegisterGPT
-        return SparseRegisterGPT(
-            num_steps=num_steps, k_active=256, inner_mul=2,
-            activation="gelu", decay_init=decay_init, **common)
-    registry["sparse"] = make_sparse
-
-    return registry
+from core.registry import REGISTRY, build_model
 
 
 # ---------------------------------------------------------------------------
@@ -254,14 +135,32 @@ def main():
 
     device = torch.device(args.device if args.device != "cuda" or torch.cuda.is_available() else "cpu")
 
-    registry = _build_registry(
-        vocab_size=args.vocab_size,
-        num_steps=args.steps,
-        n_channels=args.n_channels,
-        n_fourier_basis=args.n_fourier,
-        logit_softcap=30.0,
-        decay_init=3.0,
+    # Build args namespace compatible with registry kwargs functions
+    model_args = SimpleNamespace(
+        vocab_size=args.vocab_size, num_steps=args.steps,
+        n_channels=args.n_channels, n_fourier_basis=args.n_fourier,
+        logit_softcap=30.0, decay_init=3.0, activation="gelu",
+        # v1
+        num_heads=8, num_kv_heads=4, rope_base=10000.0, qk_gain_init=1.5,
+        # v2
+        kernel_size=16,
+        # v4
+        unique_steps=5, invocations_per_step=2, n_heads=4, transform_rank=8,
+        # wave
+        band_split="4,4,8", slow_decay_init=4.0, fast_decay_init=2.0,
+        # lgp / policy
+        n_ops=8,
+        # graph
+        interaction_rank=64,
+        # meta / brainwave / tpg
+        state_dim=64, inner_dim=128,
+        # sparse
+        k_active=256, inner_mul=2, parallel_waves=True, grad_checkpoint=False,
+        # tpg
+        gumbel_tau=1.0, halt_threshold=0.5, ponder_lambda=0.01,
     )
+
+    registry = {name: (lambda n=name: build_model(n, model_args)) for name in REGISTRY}
 
     selected = args.models if args.models else list(registry.keys())
     unknown = [m for m in selected if m not in registry]

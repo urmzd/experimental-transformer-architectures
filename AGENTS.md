@@ -3,22 +3,21 @@
 ## Principles
 
 - **Don't change defaults** — use environment variables to override hyperparameters at runtime, not by editing default values in code.
-- **Self-contained repo** — `train.py` is the single entry point for training all models. Model definitions live in their own directories (`v9_meta_state/model.py`, etc.) and are imported conditionally based on `MODEL_VERSION`.
+- **Self-contained repo** — `train.py` is the single entry point for training all models. Shared infrastructure lives in `core/` (config, data loading, eval, quantization, model registry). Model definitions live in their own directories (`v9_meta_state/model.py`, etc.) and are registered in `core/registry.py`.
 - **No embedding, no output projection** — every model operates in vocabulary space. Input is one-hot, output is the register state. Do not add embedding layers or output projections.
-- **Environment variables for everything** — all hyperparameters live in the `Hyperparameters` class in `train.py` and are read from env vars. When adding a new model, add its specific env vars there with sensible defaults.
+- **Environment variables for everything** — all hyperparameters live in the `Hyperparameters` class in `core/config.py` and are read from env vars. When adding a new model, add its specific env vars there with sensible defaults.
 
 ## Adding a new model version
 
 1. Create a directory: `vN_descriptive_name/`
 2. Add `__init__.py` and `model.py` with a single model class
 3. The model class must implement `forward(input_ids: Tensor, target_ids: Tensor) -> Tensor` returning the loss
-4. Add an `elif args.model_version == "name":` block in `train.py` (around line 660+) to import and instantiate it
-5. Add any new env vars to the `Hyperparameters` class
-6. Add any new control tensor name patterns to `CONTROL_TENSOR_NAME_PATTERNS` (these stay in fp32 during bfloat16 training)
-7. Add the model to the registry in `benchmark.py`
-8. Add the model to the `MODELS` list in `run_all.py`
-9. Update `README.md` — add a row to the architecture table and a line to the evolution of ideas
-10. Update `TODO.md` if relevant
+4. Add an entry to `REGISTRY` in `core/registry.py` with module path, class name, and kwargs function
+5. Add any new env vars to the appropriate config class in `core/config.py`
+6. Add any new control tensor name patterns to `CONTROL_TENSOR_NAME_PATTERNS` in `core/quantize.py` (these stay in fp32 during bfloat16 training)
+7. Add the model to the `MODELS` list in `run_all.py`
+8. Update `README.md` — add a row to the architecture table and a line to the evolution of ideas
+9. Update `TODO.md` if relevant
 
 ## Control tensor patterns
 
@@ -83,11 +82,16 @@ train.py
 
 ## File conventions
 
-- `model.py` — model definition only, no training logic
-- `train.py` — all training logic, model instantiation switch, quantization, validation
+- `core/config.py` — all hyperparameter classes (`Hyperparameters`, `BaseSettings` subclasses)
+- `core/data.py` — data loading (`TokenStream`, `DistributedTokenLoader`)
+- `core/eval.py` — validation (`eval_val`, `build_sentencepiece_luts`)
+- `core/quantize.py` — int8 quantization/dequantization, `CONTROL_TENSOR_NAME_PATTERNS`
+- `core/registry.py` — model registry (`REGISTRY` dict, `build_model()`)
+- `train.py` — training loop, DDP setup, checkpointing, serialization
 - `benchmark.py` — synthetic data benchmarking (no GPU needed), tests all models
 - `run_all.py` — sequential training of all models, results collection
 - `results.py` — reads `logs/*_manifest.json` and prints a results table
+- `tests/` — pytest tests for config, registry, quantization, and models
 - Model directories are named `vN_descriptive_name/`
 - Each model directory contains `__init__.py` and `model.py`
 - Research notes go in `docs/`
@@ -98,7 +102,7 @@ train.py
 |-----------------|-----------|-------------|
 | `v1` | `v1_shared_attention/` | Shared attention + Fourier ops |
 | `v2` | `v2_causal_conv/` | Depthwise conv + Fourier ops |
-| `v3` | (inline in train.py) | Associative memory + Fourier ops |
+| `v3` | `v3_assoc_memory/` | Associative memory + Fourier ops |
 | `v4` | `v4_param_optimized/` | 101K param golf |
 | `gauss` | `v5_gauss_fft/` | FFT-based ops |
 | `wave` | `v6_brain_wave/` | Oscillatory dynamics |
