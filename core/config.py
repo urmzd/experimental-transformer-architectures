@@ -101,6 +101,7 @@ class SparseRegisterConfig(BaseSettings):
     inner_mul: int = 2
     parallel_waves: bool = True
     grad_checkpoint: bool = False
+    embed_dim: int = 128
 
 
 class OptimizerConfig(BaseSettings):

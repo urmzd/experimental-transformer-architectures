@@ -136,6 +136,17 @@ REGISTRY = {
             grad_checkpoint=a.grad_checkpoint,
         ),
     },
+    "embed": {
+        "module": "v13_sparse_embed.model",
+        "class_name": "SparseEmbedGPT",
+        "kwargs": lambda a: dict(
+            vocab_size=a.vocab_size, num_steps=a.num_steps,
+            embed_dim=a.embed_dim, k_active=a.k_active,
+            inner_mul=a.inner_mul, logit_softcap=a.logit_softcap,
+            activation=a.activation, decay_init=a.decay_init,
+            parallel_waves=a.parallel_waves, grad_checkpoint=a.grad_checkpoint,
+        ),
+    },
 }
 
 
