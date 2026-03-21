@@ -52,7 +52,7 @@ Instead of memorizing every possible relationship (like attention's Q·K^T over 
 | [v6](v6_brain_wave/) | Brain Wave | Oscillatory coupling | Band-specific ops | 824K | ~3.7 | Flat loss |
 | [v7](v7_lgp/) | LGP | Causal decay memory | Learned program (op bank) | — | — | Ready |
 | [v8](v8_word_graph/) | Word Graph | Word activation similarity | V×V interaction graph | — | — | Ready |
-| **[v9](v9_meta_state/)** | **Meta-State** | **Evolving Q-table (dense)** | **Dense MLP** | **4.2M** | **3.32** | **Best non-attn** |
+| **[v9](v9_meta_state/)** | **Meta-State** | **Evolving Q-table (dense)** | **Dense MLP** | **4.2M** | **3.26** | **Best non-attn** |
 | [v10](v10_policy/) | Policy | Causal decay + policy | State-dependent ops | — | — | Ready |
 | [v11a](v11_brainwave/) | BrainWave v2 | EMA + causal decay | 5 oscillatory primitives | — | — | Ready |
 | [v11b](v11_tpg/) | Neural TPG | Multi-scale Q-table (3 decays) | Hard Gumbel routing | 6.4M | — | Ready |
@@ -79,7 +79,7 @@ v12:    Sparse register addressing?          → Top-k subspace ops, full-rank i
 
 ```bash
 # One-command setup on RunPod
-curl -sSL https://raw.githubusercontent.com/urmzd/agi-models/main/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/urmzd/exp-agi-models/main/bootstrap.sh | bash
 
 # Or manually
 pip install huggingface_hub sentencepiece
@@ -127,6 +127,19 @@ v11_tpg/                       # Neural TPG (hard routing, multi-timescale, adap
 v12_sparse_register/           # Sparse register addressing (top-k subspace)
 docs/                          # Research notes and design docs
 ```
+
+## Tested Hardware
+
+Results in the architecture table were collected on **3× NVIDIA A40** (RunPod), 10-minute wallclock limit, DDP with `nproc_per_node=3`.
+
+| Model | `MODEL_VERSION` | Outcome |
+|-------|----------------|---------|
+| v1 Shared Attention | `v1` | val_bpb **2.83** — best overall |
+| v2 Causal Conv | `v2` | 71K tok/s, barely learned — abandoned |
+| v3 Assoc Memory | `v3` | 325K tok/s, flat loss (Fourier bottleneck) |
+| v9 Meta-State | `meta` | val_bpb **3.26** (228 steps, ~199K tok/s) — best non-attention |
+
+Models not yet tested on 3×A40: v4, v5, v6, v7, v8, v10, v11a, v11b, v12.
 
 ## Inspirations
 
