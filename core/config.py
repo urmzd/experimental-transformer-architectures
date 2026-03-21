@@ -43,7 +43,7 @@ class ScheduleConfig(BaseSettings):
 
 
 class ModelCommonConfig(BaseSettings):
-    model_version: str = "v3"
+    model_version: str = "v8_graph"
     vocab_size: int = 1024
     num_steps: int = 8
     n_fourier_basis: int = 16
@@ -82,7 +82,7 @@ class LgpConfig(BaseSettings):
 
 
 class GraphConfig(BaseSettings):
-    interaction_rank: int = 64
+    interaction_rank: int = 8
 
 
 class MetaStateConfig(BaseSettings):
