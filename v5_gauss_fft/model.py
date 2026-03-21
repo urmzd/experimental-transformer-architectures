@@ -79,7 +79,7 @@ class GaussSynthesis(nn.Module):
         super().__init__()
         self.n_freq = n_freq
         self.vocab_size = vocab_size
-        self.weight = nn.Parameter(torch.randn(2 * n_freq, n_channels) * 0.02)
+        self.weight = nn.Parameter(torch.randn(n_channels, 2 * n_freq) * 0.02)
 
     def forward(self, h: Tensor) -> Tensor:
         n = self.n_freq
