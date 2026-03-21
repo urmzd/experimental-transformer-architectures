@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 setup-data = "data.download_data:main"
+benchmark = "apps.cli.benchmark:main"
 
 [project.optional-dependencies]
 cuda = [
@@ -26,7 +27,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["data", "core"]
+include = ["data", "core", "apps", "apps.*"]
 
 [tool.uv]
 default-groups = []
