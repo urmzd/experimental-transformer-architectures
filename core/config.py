@@ -11,16 +11,22 @@ from pydantic_settings import BaseSettings
 class DataConfig(BaseSettings):
     data_path: str = "./data/datasets/fineweb10B_sp1024"
     tokenizer_path: str = "./data/tokenizers/fineweb_1024_bpe.model"
+    train_pattern: str = ""
+    val_pattern: str = ""
 
     @computed_field
     @property
     def train_files(self) -> str:
-        return os.path.join(self.data_path, "fineweb_train_*.bin")
+        if self.train_pattern:
+            return self.train_pattern
+        return os.path.join(self.data_path, "*_train_*.bin")
 
     @computed_field
     @property
     def val_files(self) -> str:
-        return os.path.join(self.data_path, "fineweb_val_*.bin")
+        if self.val_pattern:
+            return self.val_pattern
+        return os.path.join(self.data_path, "*_val_*.bin")
 
 
 class RunConfig(BaseSettings):
