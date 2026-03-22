@@ -154,7 +154,7 @@ class BandMemory(nn.Module):
 
         decay = torch.sigmoid(self.decay_logit)
         pos = torch.arange(T, device=x.device)
-        diff = pos.unsqueeze(0) - pos.unsqueeze(1)
+        diff = pos.unsqueeze(1) - pos.unsqueeze(0)
         causal_mask = (diff > 0)
         decay_weights = (decay ** (diff.float() - 1).clamp(min=0)) * causal_mask
         scores = scores * decay_weights.to(dtype).unsqueeze(0)

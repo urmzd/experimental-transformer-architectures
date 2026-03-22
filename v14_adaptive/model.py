@@ -116,7 +116,7 @@ class AdaptiveDecayMemory(nn.Module):
 
         # Build causal decay mask using per-key decay rates
         pos = torch.arange(T, device=x.device)
-        diff = pos.unsqueeze(0) - pos.unsqueeze(1)  # (T, T)
+        diff = pos.unsqueeze(1) - pos.unsqueeze(0)  # (T, T)
         causal = (diff > 0).float()
 
         # Use key-position decay: decay_j^(i-j-1) for position i attending to j

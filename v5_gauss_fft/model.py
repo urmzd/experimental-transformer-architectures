@@ -139,7 +139,7 @@ class GaussMemoryStep(nn.Module):
         # Causal decay mask
         decay = torch.sigmoid(self.decay_logit)
         pos = torch.arange(T, device=x.device)
-        diff = pos.unsqueeze(0) - pos.unsqueeze(1)          # (T, T)
+        diff = pos.unsqueeze(1) - pos.unsqueeze(0)          # (T, T)
         causal = (diff > 0)
         weights = (decay ** (diff.float() - 1).clamp(min=0)) * causal
         scores = scores * weights.to(dtype).unsqueeze(0)

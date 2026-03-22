@@ -105,7 +105,7 @@ class AssociativeMemoryStep(nn.Module):
         # Causal decay mask: decay^(t-s-1) for s < t, 0 otherwise
         decay = torch.sigmoid(self.decay_logit)
         pos = torch.arange(T, device=x.device)
-        diff = pos.unsqueeze(0) - pos.unsqueeze(1)  # (T, T), diff[t,s] = t - s
+        diff = pos.unsqueeze(1) - pos.unsqueeze(0)  # (T, T), diff[t,s] = t - s
         causal_mask = (diff > 0)
         decay_weights = (decay ** (diff.float() - 1).clamp(min=0)) * causal_mask
         scores = scores * decay_weights.to(dtype).unsqueeze(0)  # (B, T, T)

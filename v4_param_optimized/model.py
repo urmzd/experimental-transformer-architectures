@@ -150,7 +150,7 @@ class MultiHeadAssociativeMemory(nn.Module):
             effective_decay = effective_decay + decay_override
         decay = torch.sigmoid(effective_decay)  # (H,)
         pos = torch.arange(T, device=x.device)
-        diff = pos.unsqueeze(0) - pos.unsqueeze(1)  # (T, T)
+        diff = pos.unsqueeze(1) - pos.unsqueeze(0)  # (T, T)
         causal_mask = (diff > 0)
 
         # decay_weights: (H, T, T)
