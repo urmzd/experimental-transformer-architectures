@@ -88,7 +88,7 @@ class GaussSynthesis(nn.Module):
         V = self.vocab_size
 
         # Channels → frequency coefficients
-        Y_ri = h.float() @ self.weight                          # (..., 2*n_freq)
+        Y_ri = (h.float() @ self.weight).float()                # (..., 2*n_freq) ensure f32 for complex
         Y = torch.complex(Y_ri[..., :n], Y_ri[..., n:])        # (..., n_freq) complex
 
         # Place into full spectrum (DC=0, harmonics 1..n_freq, rest=0)
@@ -205,8 +205,8 @@ class GaussRegisterOp(nn.Module):
             h = F.gelu(h)
 
         # === IFFT: channels → frequency → vocab ===
-        Y_ri = h @ self.ch_to_freq.T                     # (B, T, 2*n_freq)
-        Y = torch.complex(Y_ri[..., :n], Y_ri[..., n:]) # (B, T, n_freq) complex
+        Y_ri = (h @ self.ch_to_freq.T).float()            # (B, T, 2*n_freq) ensure f32 for complex
+        Y = torch.complex(Y_ri[..., :n], Y_ri[..., n:])  # (B, T, n_freq) complex
 
         full = torch.zeros(B, T, V // 2 + 1, dtype=Y.dtype, device=x.device)
         full[..., 1:n + 1] = Y
