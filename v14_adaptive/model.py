@@ -52,8 +52,7 @@ class AdaptiveCausalConv1D(nn.Module):
         self.weight = nn.Parameter(torch.randn(dim, 1, kernel_size) * 0.02)
         self.bias = nn.Parameter(torch.zeros(dim))
         # Gate projection: state -> per-kernel-position modulation
-        self.gate_proj = nn.Linear(dim, kernel_size, bias=False)
-        nn.init.zeros_(self.gate_proj.weight)
+        self.gate_weight = nn.Parameter(torch.zeros(kernel_size, dim))
 
     def forward(self, x: Tensor) -> Tensor:
         # Standard causal conv
@@ -64,8 +63,7 @@ class AdaptiveCausalConv1D(nn.Module):
         out = out.transpose(1, 2)  # (B, T, D)
 
         # Input-dependent gating: modulate conv output per-position
-        gates = torch.sigmoid(self.gate_proj(x.float())).to(x.dtype)  # (B, T, K)
-        # Average gate across kernel positions -> per-position scalar
+        gates = torch.sigmoid(x @ self.gate_weight.T)  # (B, T, K)
         gate_scale = gates.mean(dim=-1, keepdim=True)  # (B, T, 1)
         return out * gate_scale
 
