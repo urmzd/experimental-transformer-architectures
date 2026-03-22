@@ -56,20 +56,18 @@ class AdaptiveCausalConv1D(nn.Module):
         nn.init.zeros_(self.gate_proj.weight)
 
     def forward(self, x: Tensor) -> Tensor:
-        B, T, D = x.shape
-        # Compute per-position kernel gates from mean state
-        gates = torch.sigmoid(self.gate_proj(x.float()))  # (B, T, K)
-        gates = gates.mean(dim=1, keepdim=True)  # (B, 1, K) — batch-level gate
-
-        # Modulate kernel
-        w = self.weight.to(x.dtype) * gates.unsqueeze(1).to(x.dtype)  # (B, D, 1, K) broadcast
-
-        # Standard causal conv (use base kernel + gate as residual)
+        # Standard causal conv
         xp = x.transpose(1, 2)  # (B, D, T)
         xp = F.pad(xp, (self.kernel_size - 1, 0))
-        # Use base conv + gated perturbation
-        base = F.conv1d(xp, self.weight.to(x.dtype), self.bias.to(x.dtype), groups=D)
-        return base.transpose(1, 2)
+        out = F.conv1d(xp, self.weight.to(x.dtype), self.bias.to(x.dtype),
+                       groups=xp.size(1))
+        out = out.transpose(1, 2)  # (B, T, D)
+
+        # Input-dependent gating: modulate conv output per-position
+        gates = torch.sigmoid(self.gate_proj(x.float())).to(x.dtype)  # (B, T, K)
+        # Average gate across kernel positions -> per-position scalar
+        gate_scale = gates.mean(dim=-1, keepdim=True)  # (B, T, 1)
+        return out * gate_scale
 
 
 class AdaptiveDecayMemory(nn.Module):
