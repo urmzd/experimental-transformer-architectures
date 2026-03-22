@@ -219,6 +219,13 @@ class BrainWaveGPT(AgiModel):
         gate_dim: int = 64
         logit_softcap: float = 30.0
 
+    @classmethod
+    def build_kwargs(cls, args) -> dict:
+        kw = cls._read_args(args)
+        if 'gate_dim' not in kw and hasattr(args, 'state_dim'):
+            kw['gate_dim'] = args.state_dim
+        return cls._filter_init(kw)
+
     def __init__(self, vocab_size: int = 1024, num_steps: int = 8,
                  state_dim: int = 64, inner_dim: int = 128,
                  gate_dim: int = 64, logit_softcap: float = 30.0):

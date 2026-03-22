@@ -225,9 +225,9 @@ class LGPGPT(AgiModel):
 
     @classmethod
     def build_kwargs(cls, args) -> dict:
-        kw = super().build_kwargs(args)
+        kw = cls._read_args(args)
         kw['num_instructions'] = kw.pop('num_steps')
-        return kw
+        return cls._filter_init(kw)
 
     def __init__(self, vocab_size: int = 1024, num_instructions: int = 16,
                  n_fourier_basis: int = 16, n_channels: int = 64,

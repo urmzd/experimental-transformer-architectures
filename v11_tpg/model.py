@@ -297,10 +297,10 @@ class TPGGPT(AgiModel):
 
     @classmethod
     def build_kwargs(cls, args) -> dict:
-        kw = super().build_kwargs(args)
+        kw = cls._read_args(args)
         if hasattr(args, 'gumbel_tau') and 'tau' not in kw:
             kw['tau'] = args.gumbel_tau
-        return kw
+        return cls._filter_init(kw)
 
     def __init__(self, vocab_size: int = 1024, num_steps: int = 8,
                  state_dim: int = 64, inner_dim: int = 128,

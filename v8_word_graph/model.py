@@ -175,9 +175,9 @@ class WordGraphGPT(AgiModel):
 
     @classmethod
     def build_kwargs(cls, args) -> dict:
-        kw = super().build_kwargs(args)
+        kw = cls._read_args(args)
         kw['num_hops'] = kw.pop('num_steps')
-        return kw
+        return cls._filter_init(kw)
 
     def __init__(self, vocab_size: int = 1024, num_hops: int = 8,
                  interaction_rank: int = 64, logit_softcap: float = 30.0,

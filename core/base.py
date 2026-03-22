@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import abc
+import inspect
 from typing import ClassVar
 
 import torch.nn as nn
@@ -38,14 +39,24 @@ class AgiModel(nn.Module, abc.ABC):
     Settings: ClassVar[type[CommonSettings]] = CommonSettings
 
     @classmethod
+    def _read_args(cls, args) -> dict:
+        """Read Settings fields from an args namespace (unfiltered)."""
+        return {k: getattr(args, k) for k in cls.Settings.model_fields if hasattr(args, k)}
+
+    @classmethod
+    def _filter_init(cls, kw: dict) -> dict:
+        """Keep only keys that __init__ accepts."""
+        init_params = set(inspect.signature(cls.__init__).parameters) - {"self"}
+        return {k: v for k, v in kw.items() if k in init_params}
+
+    @classmethod
     def build_kwargs(cls, args) -> dict:
         """Extract constructor kwargs from a config/args namespace.
 
-        Default: instantiate Settings from the args namespace.
-        Override if the mapping between args and __init__ params is non-trivial.
+        Override in subclasses to rename fields (e.g. num_steps -> num_cycles).
+        Call _read_args() then _filter_init() in custom overrides.
         """
-        fields = cls.Settings.model_fields
-        return {k: getattr(args, k) for k in fields if hasattr(args, k)}
+        return cls._filter_init(cls._read_args(args))
 
     @abc.abstractmethod
     def forward(self, input_ids: Tensor, target_ids: Tensor) -> Tensor:

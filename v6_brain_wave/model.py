@@ -289,10 +289,10 @@ class BrainWaveGPT(AgiModel):
 
     @classmethod
     def build_kwargs(cls, args) -> dict:
-        kw = super().build_kwargs(args)
+        kw = cls._read_args(args)
         kw['num_cycles'] = kw.pop('num_steps')
         kw['band_split'] = tuple(int(x) for x in kw.pop('band_split', '4,4,8').split(','))
-        return kw
+        return cls._filter_init(kw)
 
     def __init__(self, vocab_size: int = 1024, num_cycles: int = 8,
                  n_fourier_basis: int = 16, n_channels: int = 128,

@@ -265,9 +265,9 @@ class GaussRegisterGPT(AgiModel):
 
     @classmethod
     def build_kwargs(cls, args) -> dict:
-        kw = super().build_kwargs(args)
+        kw = cls._read_args(args)
         kw['n_freq'] = kw.pop('n_fourier_basis', args.n_fourier_basis)
-        return kw
+        return cls._filter_init(kw)
 
     def __init__(self, vocab_size: int = 1024, num_steps: int = 8,
                  n_freq: int = 64, n_channels: int = 128,
