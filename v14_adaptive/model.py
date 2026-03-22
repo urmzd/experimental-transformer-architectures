@@ -249,11 +249,6 @@ class AdaptiveGPT(AgiModel):
         k_active: int = 256
         kernel_size: int = 16
 
-    @classmethod
-    def build_kwargs(cls, args) -> dict:
-        fields = cls.Settings.model_fields
-        return {k: getattr(args, k) for k in fields if hasattr(args, k)}
-
     def __init__(self, vocab_size: int = 1024, num_steps: int = 8,
                  k_active: int = 256, kernel_size: int = 16,
                  n_fourier_basis: int = 16, n_channels: int = 128,

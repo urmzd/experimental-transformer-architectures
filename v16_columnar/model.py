@@ -240,11 +240,6 @@ class ColumnarGPT(AgiModel):
         inner_mul: int = 2
         n_branches: int = 4
 
-    @classmethod
-    def build_kwargs(cls, args) -> dict:
-        fields = cls.Settings.model_fields
-        return {k: getattr(args, k) for k in fields if hasattr(args, k)}
-
     def __init__(self, vocab_size: int = 1024, num_columns: int = 4,
                  steps_per_column: int = 3, k_active: int = 128,
                  inner_mul: int = 2, n_branches: int = 4,
