@@ -1,4 +1,4 @@
-# exp-agi-models
+# experimental transformer architectures
 
 Exploring whether vocabulary-space computation — where every hidden state is a readable distribution over words — can match opaque-embedding architectures at language modeling.
 
