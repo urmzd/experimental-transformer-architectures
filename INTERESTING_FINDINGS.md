@@ -1,5 +1,7 @@
 # Interesting Findings
 
+> **Caveat (2026-05):** The table below is a *synthetic-data, CPU forward/backward* micro-benchmark — it measures speed and init-time gradient/loss behavior, **not trained quality**. OpenAI's Parameter Golf write-up found that synthetic benchmarks don't transfer to real-text bits-per-byte, so don't use this to rank architectures for the real objective. For trained quality on the target corpus, see the head-to-head table in [`README.md`](README.md). (The `--iters/--batch/--seq-len` invocation below predates the current `apps/cli/benchmark.py`, which now takes `--versions/--minutes/--batch`.)
+
 ## Benchmark: CPU Forward+Backward (synthetic data, no training)
 
 Run via `python apps/cli/benchmark.py --iters 3 --batch 2 --seq-len 128`.
