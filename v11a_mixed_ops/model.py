@@ -57,7 +57,9 @@ class HighDecayEMA(nn.Module):
         # Efficient: use log-space cumsum trick
         log_decay = torch.log(decay.clamp(min=1e-6))  # (D,)
         # Weight each position: w[t] = decay^(T-1-t)
-        steps = torch.arange(T, device=x.device, dtype=x.dtype)
+        # fp32 positions: bf16 cannot represent integers > 256 exactly, which
+        # would corrupt the decay exponents at the training seq_len of 1024.
+        steps = torch.arange(T, device=x.device, dtype=torch.float32)
         # weights[t, d] = exp((T-1-t) * log_decay[d])
         weights = torch.exp(steps.flip(0).unsqueeze(-1) * log_decay.unsqueeze(0))  # (T, D)
         # Weighted x, cumsum, then unweight

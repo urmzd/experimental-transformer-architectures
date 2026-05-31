@@ -68,7 +68,7 @@ class AdaptiveCausalConv1D(nn.Module):
         out = out.transpose(1, 2)  # (B, T, D)
 
         # Input-dependent gating: modulate conv output per-position
-        gates = torch.sigmoid(x @ self.gate_weight.T)  # (B, T, K)
+        gates = torch.sigmoid(x @ self.gate_weight.T.to(x.dtype))  # (B, T, K)
         gate_scale = gates.mean(dim=-1, keepdim=True)  # (B, T, 1)
         return out * gate_scale
 
