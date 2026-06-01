@@ -15,15 +15,15 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/urmzd/experimental-transformer-architectures" alt="License"></a>
 </p>
 
-The problem these experiments attack: frontier language models are **billions of opaque parameters with no faithful way to see how they compute** or to link internal activity to meaning. The goal here is **understanding how the system works and operates** — architectures (and the tooling around them) where the computation is observable *by construction*. Whether you can drop embeddings is not the question; embeddings were never the problem — opacity at scale is.
+The problem these experiments attack: frontier language models are **billions of opaque parameters with no faithful way to see how they compute** or to link internal activity to meaning. The goal here is **observability at no performance cost** — architectures (and the tooling around them) where you can see *how the computation works* **without giving up the quality of an opaque model**. Observability that costs accuracy isn't the win; observability that's *free* is. (Whether you can drop embeddings was never the question — opacity at scale is.)
 
 ## What This Is
 
-A testbed for **observable language models** — built so you can understand *how they operate*, not just measure how well they score. The motivation is the opacity of modern LMs: billions of parameters, no faithful way to trace what the computation does or to link one internal representation to the next.
+A testbed for **observable language models that don't trade away performance** — the aim is to *understand how they operate* **and** match what an opaque model achieves. The motivation is the opacity of modern LMs: billions of parameters, no faithful way to trace what the computation does or to link one internal representation to the next.
 
 The approach keeps everything in **vocabulary space**: every architecture shares one mechanism — **hidden dimension = vocab size**, no learned embedding, no output projection — so the register state IS a distribution over words at every step. You can read each intermediate state as "which words are active and how strongly," and watch a prediction form across recurrent steps. Interpretability by construction, not post-hoc probing.
 
-To be clear about what this is *not*: it is not a leaderboard entry. Raw scores (bits-per-byte) are only a sanity check that the model computes something real — the research question is whether the readable states genuinely *explain* the computation. See [Observing the computation](#observing-the-computation).
+To be clear about the bar: this is **performance *and* observability — observability at no cost.** Not a leaderboard chase for its own sake, but a readable model has to *match* an opaque one (`v13_with_embedding`) to make the point: observability that costs accuracy proves nothing; observability that's free is the result worth having. See [Observing the computation](#observing-the-computation).
 
 ## Observing the computation
 
@@ -88,7 +88,7 @@ We are **~2.5–3× worse than even the naive baseline** — as-is, nothing here
 
 Adding the embedding drops bpb **3.08 → 2.26 (≈0.82 bpb)** and closes ~45% of the gap to the 1.2244 baseline — in fewer steps. The per-step gradient norm (logged via `grad_norm`) tracks this exactly: v8 is gradient-starved (~0.04 — clipping never fires, it plateaus), v12 is healthy (~0.28), v13 learns hard (~2.56 — gradient clipping engages). v8's 164K capacity is an additional wall: it stops improving with more compute, while v12 keeps descending (3.19 → 3.08 with more steps).
 
-**Framing:** the readable vocab-space state is the *point* of this project — **interpretability and observability**, not the leaderboard. This "tax" measures what readability costs in raw modeling capability; whether the readable states deliver understanding worth ~0.8 bpb is the real open question, and one these bits-per-byte benchmarks do not measure. `v13_with_embedding` is the deliberately-opaque baseline here, not a template to copy.
+**Framing:** the bar is **performance *and* observability — readability that costs nothing.** So the 0.82 bpb gap between v12 (readable) and `v13_with_embedding` (opaque) is **not a price to accept — it is the gap to eliminate** while keeping the state readable. `v13` is the **performance target**, not a template to copy; the win is a readable model that reaches it. Closing this gap (via training recipe, capacity, and architecture) *without* losing observability is the core research program.
 
 ### What these results mean
 

@@ -21,25 +21,27 @@
 - [ ] Learning rate warmup schedule (currently flat after warmup steps)
 - [ ] Gumbel temperature annealing for `v11b_hard_routing` — anneal tau from 1.0 → 0.1 during training
 
-## Interpretability & observability (the actual hypothesis)
+## The objective: performance *and* observability (observability at no cost)
 
-The goal is NOT the leaderboard — it is whether vocab-space computation lets us **map tokens and understand why the model predicts what it does**. Because every hidden state is a distribution over the vocabulary, the computation should be readable *by construction*. Open work to actually test that:
+The thesis is that you can have **both** — a model whose computation is readable *by construction* (every hidden state is a distribution over words) that **also matches an opaque model's performance**. Success is not "readable but worse"; it is **readable *and* as good**. Two fronts, pursued together:
 
-Tooling now lives in `apps/cli/observe.py` (`observe trace|wordmap|causality|demo`).
+### A. Observability — is the readable state real?
+
+Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo`).
 
 - [x] Observability trace (`observe trace`): top-k active vocab dims of the register state at each step
 - [x] `v8_lowrank_vv` word→word map (`observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`observe demo`, chance ≈3%)
 - [~] Causality probe built (`observe causality`); needs a **trained checkpoint** to return a real load-bearing/decorative verdict (untrained models read as decorative, correctly)
 - [ ] Faithfulness/causality on **real text + a trained checkpoint** (the prior runs didn't save weights — retrain and `save_checkpoint`, then probe)
 - [ ] Define a quantitative interpretability metric beyond planted recovery (e.g. state→output agreement, human-legible rationale) and measure across variants
-- [ ] Is readability worth its cost? Compare interpretability of the readable variants vs the opaque `v13_with_embedding` baseline (which buys −0.82 bpb with an unreadable embedding)
+- [ ] Track observability *jointly with* bpb as capability improves — does the state stay readable as the model gets better? (the entire claim is that it can)
 
-## Parameter Golf (capability yardstick — NOT the goal)
+### B. Performance — close the gap *without* losing observability
 
-A sanity check on raw modeling capability, not the objective. Target: best LM in a 16 MB artifact, <10 min on 8× H100, bits-per-byte on FineWeb.
-Current standing: ~3.1–3.6 bpb vs the 1.2244 verified baseline / ~1.061 best record — ~3× off on raw capability. (See README.)
+A readable model must reach the opaque baseline. Measured against [Parameter Golf](https://github.com/openai/parameter-golf) (16 MB artifact, <10 min on 8× H100, bits-per-byte on FineWeb).
+Current standing: readable variants ~3.1–3.4 bpb; opaque `v13` **2.26**; naive baseline 1.2244; best record ~1.061. **The job: close the ~0.82 bpb readable-vs-opaque gap (and beyond) while keeping the state legible.** (See README.)
 
-- [x] **Decisive experiment (done 2026-05-31, 1× H100, 600s each):** `v13_with_embedding` **2.26 bpb** vs `v12_vocab_slice` (no-embed) 3.08 vs `v8_lowrank_vv` 3.43. The embedding closes ~45% of the gap to the 1.2244 baseline (~0.82 bpb). **The no-embedding constraint, not compute, is the wall.** (A full 8× H100 / 8B-token run would lower absolute numbers but not change the relative finding.)
+- [x] **Decisive experiment (done 2026-05-31, 1× H100, 600s each):** `v13_with_embedding` **2.26 bpb** vs `v12_vocab_slice` (no-embed) 3.08 vs `v8_lowrank_vv` 3.43. The embedding closes ~45% of the gap to the 1.2244 baseline (~0.82 bpb). **The no-embedding constraint, not compute, is the wall** — so the program is to *break that wall while keeping the state readable*, not to accept it. (A full 8× H100 / 8B-token run would lower absolute numbers but not change the relative finding.)
 - [ ] **Training recipe (closes the bpb gap; verified from winning entries):** Polar-Express Muon optimizer + warmdown/MIN_LR floor; fused LeakyReLU(0.5)² + softcapped-CE Triton kernels (winners hit ~4900 steps/600s); depth recurrence + parallel residual lanes (effective depth at ~zero param cost)
 - [ ] **Score-first "legal" test-time training at eval** — highest single verified ROI (−0.0337 bpb in one PR); must honor causality / score-before-update / single-pass / no pre-quant TTT on val
 - [ ] **Compression to fit more params under 16 MB (verified):** GPTQ int6/int7 + LQER rank-4 int4 correction + SDClip std-based clipping + L1 similarity-sort + lrzip-zpaq/brotli
