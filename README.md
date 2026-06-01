@@ -53,7 +53,7 @@ On this corpus and an equal budget the ranking **inverts** the historical table:
 
 ### Where this lands on Parameter Golf
 
-This project targets [OpenAI's Parameter Golf](https://github.com/openai/parameter-golf): the best LM in a **16 MB artifact** (code + compressed weights), trained in **under 10 min on 8× H100**, scored by **tokenizer-agnostic bits-per-byte** on the FineWeb validation set. `train.py` already emits the int8 + zlib artifact this competition scores.
+Used here as a **raw-capability yardstick — not the project's goal** (the goal is interpretability/observability; see *What's actually unique here*). [OpenAI's Parameter Golf](https://github.com/openai/parameter-golf): the best LM in a **16 MB artifact** (code + compressed weights), trained in **under 10 min on 8× H100**, scored by **tokenizer-agnostic bits-per-byte** on the FineWeb validation set. `train.py` already emits the int8 + zlib artifact this competition scores.
 
 | | bits-per-byte |
 |---|---|
@@ -61,9 +61,25 @@ This project targets [OpenAI's Parameter Golf](https://github.com/openai/paramet
 | Naive baseline (9-layer, 512-dim transformer) | **1.2244** |
 | Best here (`v12_vocab_slice`) | **3.19** |
 
-We are **~2.5–3× worse than even the naive baseline** — as-is, nothing here lands on the leaderboard. The prime suspect is the core constraint itself: the baseline is a conventional transformer with a 512-dim **embedding**, whereas the no-embedding `hidden_dim = vocab_size = 1024` design forces all computation through a vocab-space bottleneck (`v13_with_embedding` exists to measure exactly this cost). The decisive open experiment is a full **8× H100 / 10-min / 8B-token** run of the top variants alongside `v13_with_embedding` as the control, to separate the constraint's intrinsic cost from the compute-budget shortfall.
+We are **~2.5–3× worse than even the naive baseline** — as-is, nothing here lands on the leaderboard. The prime suspect is the core constraint itself: the baseline is a conventional transformer with a 512-dim **embedding**, whereas the no-embedding `hidden_dim = vocab_size = 1024` design forces all computation through a vocab-space bottleneck. We tested this directly with the `v13_with_embedding` control (below) — and the embedding closes ~45% of the gap, confirming the constraint, not the compute budget, is the wall.
+
+### The no-embedding tax, measured (1× H100, identical 600s train budget, 2026-05-31)
+
+`v13_with_embedding` shares v12's exact body and differs only by a learned `Embedding(V, d) → Linear(d, V)`:
+
+| `MODEL_VERSION` | Embedding? | Params | Steps | val_bpb | final grad-norm |
+|---|---|---|---|---|---|
+| **v13_with_embedding** | yes (control) | 4.46M | 894 | **2.256** | 2.56 |
+| v12_vocab_slice | no | 4.20M | 945 | 3.079 | 0.28 |
+| v8_lowrank_vv | no | 0.16M | 477 | 3.427 | 0.04 |
+
+Adding the embedding drops bpb **3.08 → 2.26 (≈0.82 bpb)** and closes ~45% of the gap to the 1.2244 baseline — in fewer steps. The per-step gradient norm (logged via `grad_norm`) tracks this exactly: v8 is gradient-starved (~0.04 — clipping never fires, it plateaus), v12 is healthy (~0.28), v13 learns hard (~2.56 — gradient clipping engages). v8's 164K capacity is an additional wall: it stops improving with more compute, while v12 keeps descending (3.19 → 3.08 with more steps).
+
+**Framing:** the readable vocab-space state is the *point* of this project — **interpretability and observability**, not the leaderboard. This "tax" measures what readability costs in raw modeling capability; whether the readable states deliver understanding worth ~0.8 bpb is the real open question, and one these bits-per-byte benchmarks do not measure. `v13_with_embedding` is the deliberately-opaque control here, not a template to copy.
 
 ### What these results mean
+
+> **Note:** the analysis below reflects the original 3× A40 run and is **superseded** by the head-to-head and no-embedding-tax results above (on the target corpus, v12 > v8; the embedding control reaches 2.26 bpb).
 
 **The low-rank V x V linear layer (v8) is the best architecture so far.** At rank 8 with 164K params, it reaches val_loss 5.24 in 100 steps — better than v2_conv (353K params, 464 steps) with half the parameters in one-fifth the steps. The train/val gap is essentially zero, confirming it's learning, not memorizing.
 

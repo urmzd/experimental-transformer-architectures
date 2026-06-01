@@ -21,12 +21,22 @@
 - [ ] Learning rate warmup schedule (currently flat after warmup steps)
 - [ ] Gumbel temperature annealing for `v11b_hard_routing` — anneal tau from 1.0 → 0.1 during training
 
-## Parameter Golf (the actual objective)
+## Interpretability & observability (the actual hypothesis)
 
-Target: best LM in a 16 MB artifact, <10 min on 8× H100, scored by bits-per-byte on FineWeb.
-Current standing: ~3.1–3.6 bpb vs the 1.2244 verified naive baseline / ~1.061 verified best record — ~3× off. We are losing on training *fundamentals* (optimizer, step count, recipe), not just compression. (See README.)
+The goal is NOT the leaderboard — it is whether vocab-space computation lets us **map tokens and understand why the model predicts what it does**. Because every hidden state is a distribution over the vocabulary, the computation should be readable *by construction*. Open work to actually test that:
 
-- [ ] **Decisive experiment:** full 8× H100 / 10-min / 8B-token run of `v12_vocab_slice` + `v8_lowrank_vv` + `v13_with_embedding` (control) — separates the no-embedding constraint's cost from the compute-budget shortfall
+- [ ] Observability trace: for a fixed prompt, log the top-k active vocab dims of the register state at each recurrent step — watch the prediction form
+- [ ] `v8_lowrank_vv`: export the low-rank V×V interaction matrix (`U@Vᵀ + diag`) as a readable "word i → word j" map; compare against an empirical bigram table
+- [ ] Causality check: intervene on a vocab dimension mid-computation and verify the output shifts predictably (states should be mechanistically load-bearing, not just readable)
+- [ ] Define and measure an interpretability/observability metric (e.g. how well the intermediate state predicts the final output, or yields a human-legible rationale) across variants
+- [ ] Is readability worth its cost? Compare interpretability of the no-embedding variants vs the opaque `v13_with_embedding` control (which buys −0.82 bpb with an unreadable embedding)
+
+## Parameter Golf (capability yardstick — NOT the goal)
+
+A sanity check on raw modeling capability, not the objective. Target: best LM in a 16 MB artifact, <10 min on 8× H100, bits-per-byte on FineWeb.
+Current standing: ~3.1–3.6 bpb vs the 1.2244 verified baseline / ~1.061 best record — ~3× off on raw capability. (See README.)
+
+- [x] **Decisive experiment (done 2026-05-31, 1× H100, 600s each):** `v13_with_embedding` **2.26 bpb** vs `v12_vocab_slice` (no-embed) 3.08 vs `v8_lowrank_vv` 3.43. The embedding closes ~45% of the gap to the 1.2244 baseline (~0.82 bpb). **The no-embedding constraint, not compute, is the wall.** (A full 8× H100 / 8B-token run would lower absolute numbers but not change the relative finding.)
 - [ ] **Training recipe (closes the bpb gap; verified from winning entries):** Polar-Express Muon optimizer + warmdown/MIN_LR floor; fused LeakyReLU(0.5)² + softcapped-CE Triton kernels (winners hit ~4900 steps/600s); depth recurrence + parallel residual lanes (effective depth at ~zero param cost)
 - [ ] **Score-first "legal" test-time training at eval** — highest single verified ROI (−0.0337 bpb in one PR); must honor causality / score-before-update / single-pass / no pre-quant TTT on val
 - [ ] **Compression to fit more params under 16 MB (verified):** GPTQ int6/int7 + LQER rank-4 int4 correction + SDClip std-based clipping + L1 similarity-sort + lrzip-zpaq/brotli
