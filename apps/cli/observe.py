@@ -353,6 +353,86 @@ def cmd_coverage(a):
         print(f"   {lbl:>10}: {100 * c:3.0f}%  (mean Δ {sum(rs) / max(len(rs), 1):.3f})")
 
 
+def cmd_induction(a):
+    """Beyond-bigram test: in-context key->value association (induction).
+
+    Each sequence carries its OWN random key->value map: a study phase presents
+    (k, v) pairs, then a query phase re-presents each key and the model must
+    predict its value. A fixed-weight bigram is at chance (1/V) on query
+    positions — only in-context lookback can solve it. Train v8, measure
+    query-position accuracy, then read the mechanism with a trace."""
+    from types import SimpleNamespace
+    torch.manual_seed(0)
+    V, P, hops, rank = a.vocab, a.pairs, a.hops, a.rank
+    # Small-but-real args so any variant builds (mirrors tests/_SMALL_ARGS).
+    ns = SimpleNamespace(
+        vocab_size=V, num_steps=hops, n_channels=64, n_fourier_basis=16,
+        logit_softcap=30.0, decay_init=3.0, activation="gelu",
+        num_heads=2, num_kv_heads=2, rope_base=10000.0, qk_gain_init=1.5, kernel_size=4,
+        unique_steps=hops, invocations_per_step=1, n_heads=2, transform_rank=8,
+        band_split="1,1,2", slow_decay_init=4.0, fast_decay_init=2.0,
+        n_ops=4, interaction_rank=rank, state_dim=32, inner_dim=64,
+        k_active=16, inner_mul=2, parallel_waves=True, grad_checkpoint=False,
+        embed_dim=32, gumbel_tau=1.0, halt_threshold=0.5, ponder_lambda=0.01,
+        sparsity_k=8, aux_loss_weight=0.1, aux_loss_decay=0.9,
+        num_columns=2, steps_per_column=2, n_branches=2,
+    )
+    model = build_model(a.version, ns).float()
+
+    def make_batch(bs):
+        xs, ys, masks = [], [], []
+        for _ in range(bs):
+            keys = torch.randperm(V)[:P]
+            vals = torch.randint(0, V, (P,))
+            toks, qvpos = [], []
+            for i in range(P):                       # study: k, v, k, v, ...
+                toks += [int(keys[i]), int(vals[i])]
+            for i in torch.randperm(P).tolist():     # query: k, <predict v>
+                toks.append(int(keys[i]))
+                qvpos.append(len(toks))              # index in toks of the value
+                toks.append(int(vals[i]))
+            seq = torch.tensor(toks)
+            xs.append(seq[:-1]); ys.append(seq[1:])
+            m = torch.zeros(seq.numel() - 1, dtype=torch.bool)
+            for qp in qvpos:
+                if qp - 1 < m.numel():
+                    m[qp - 1] = True                 # query-key position predicts the value
+            masks.append(m)
+        return torch.stack(xs), torch.stack(ys), torch.stack(masks)
+
+    opt = torch.optim.Adam(model.parameters(), lr=a.lr)
+    print(f"induction: {a.version} (V={V}, pairs={P}, steps_dim={hops}, rank={rank}), {a.steps} steps; chance = {100/V:.1f}%")
+    for t in range(a.steps):
+        x, y, _ = make_batch(a.batch)
+        loss = model(x, y)
+        opt.zero_grad(); loss.backward(); opt.step()
+        if (t + 1) % max(a.steps // 8, 1) == 0:
+            print(f"  step {t+1:4d}  full-seq loss {loss.item():.4f}")
+
+    x, y, mask = make_batch(512)
+    _, states, _ = capture_register_states(model, x)   # final state = logits up to monotone ops
+    if not states:
+        print(f"\n  cannot probe {a.version}: no per-step ModuleList to hook "
+              f"(tool supports hops/steps/layers/blocks/columns; weight-shared loops unsupported).")
+        return
+    pred = states[-1].argmax(-1)
+    total = int(mask.sum())
+    acc = int(((pred == y) & mask).sum()) / max(total, 1)
+    print(f"\n  query-position accuracy = {acc*100:.1f}%   (chance = bigram ceiling = {100/V:.1f}%)")
+    print(f"  -> {'SOLVES INDUCTION — in-context lookback works (beyond bigram)' if acc > 5.0/V else 'at/near chance — no in-context lookback'}")
+
+    x1, y1, m1 = make_batch(1)
+    qpos = int(m1[0].nonzero()[0])
+    _, st, _ = capture_register_states(model, x1)
+    truth = int(y1[0, qpos])
+    print(f"\n  trace @ query position {qpos} (true recalled value = token {truth}):")
+    for i, s in enumerate(st):
+        v, idx = torch.topk(s[0, qpos], 4)
+        toks = "  ".join(f"{int(j)}({float(w):+.1f})" for w, j in zip(v, idx))
+        hit = "  <-- recalled value on top" if int(idx[0]) == truth else ""
+        print(f"    hops[{i}]: {toks}{hit}")
+
+
 # --------------------------------------------------------------------------- #
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -404,6 +484,17 @@ def main():
     cv.add_argument("--kscale", type=float, default=3.0)
     cv.add_argument("--threshold", type=float, default=0.02)
     cv.set_defaults(func=cmd_coverage)
+
+    ind = sub.add_parser("induction")
+    ind.add_argument("--version", default="v8_lowrank_vv")
+    ind.add_argument("--vocab", type=int, default=48)
+    ind.add_argument("--pairs", type=int, default=10)
+    ind.add_argument("--hops", type=int, default=8)
+    ind.add_argument("--rank", type=int, default=32)
+    ind.add_argument("--steps", type=int, default=2000)
+    ind.add_argument("--batch", type=int, default=64)
+    ind.add_argument("--lr", type=float, default=0.01)
+    ind.set_defaults(func=cmd_induction)
 
     a = p.parse_args()
     a.func(a)
