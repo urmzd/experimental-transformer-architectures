@@ -38,6 +38,9 @@ class RunConfig(BaseSettings):
 
 class ScheduleConfig(BaseSettings):
     val_batch_size: int = 524_288
+    # 0 = evaluate the full validation set (faithful bits-per-byte score).
+    # Set >0 to cap eval to the first N tokens for fast experimentation.
+    val_max_tokens: int = 0
     val_loss_every: int = 1000
     train_log_every: int = 200
     iterations: int = 500
