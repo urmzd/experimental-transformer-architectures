@@ -241,6 +241,50 @@ def cmd_demo(a):
     print(f"\n  -> {verdict}")
 
 
+def cmd_sweep(a):
+    """Map which (step, word) sites are causally load-bearing vs decorative."""
+    model = load_model(a.version, a.checkpoint)
+    vocab = load_vocab(a.tokenizer)
+    ids = ([int(x) for x in a.prompt.split(",")] if a.prompt
+           else torch.randint(0, model.vocab_size, (a.seqlen,)).tolist())
+    input_ids = torch.tensor(ids).unsqueeze(0)
+    pos = a.pos if a.pos >= 0 else len(ids) - 1
+    labels, base, V = capture_register_states(model, input_ids)
+    if not base:
+        print("No step modules to sweep."); return
+    base_final = base[-1][0, pos]
+    base_arg = int(F.softmax(base_final, dim=-1).argmax())
+    denom = base_final.abs().sum().item() + 1e-9
+
+    print(f"version={a.version} vocab={V} pos={pos}  (Δlogits = rel. L1 change in pre-softcap logits)")
+    print(f"  probing top-{a.topk} active word(s) per step; LOAD if Δlogits > {a.threshold}\n")
+    print(f"  {'step':>10} {'word':>14} {'maxΔlogits':>11}")
+    per_step_max = []
+    for s in range(len(base)):
+        mid = base[s][0, pos]
+        scale = float(mid.abs().max())
+        topdims = mid.abs().topk(min(a.topk, V)).indices.tolist()
+        step_max = 0.0
+        for dim in topdims:
+            best_rel, changed = 0.0, False
+            for delta in (-mid[dim].item(), a.kscale * scale, -a.kscale * scale):
+                _, ps, _ = capture_register_states(model, input_ids, perturb=(s, pos, dim, delta))
+                pf = ps[-1][0, pos]
+                best_rel = max(best_rel, (pf - base_final).abs().sum().item() / denom)
+                if int(F.softmax(pf, dim=-1).argmax()) != base_arg:
+                    changed = True
+            step_max = max(step_max, best_rel)
+            word = vocab[dim] if vocab and dim < len(vocab) else f"#{dim}"
+            flag = "LOAD" if best_rel > a.threshold else "."
+            print(f"  {labels[s]:>10} {word:>14} {best_rel:>11.4f}  {flag}{' *flip*' if changed else ''}")
+        per_step_max.append((labels[s], step_max))
+    print("\n  per-step max Δlogits (where in depth the causal sites are):")
+    for lbl, m in per_step_max:
+        print(f"   {lbl:>10} {m:>8.4f} {'#' * min(int(m / max(a.threshold, 1e-9)), 40)}")
+    load = [l for l, m in per_step_max if m > a.threshold]
+    print(f"\n  load-bearing steps (Δlogits > {a.threshold}): {load or 'none at probed sites'}")
+
+
 # --------------------------------------------------------------------------- #
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -277,6 +321,15 @@ def main():
     d.add_argument("--batch", type=int, default=64)
     d.add_argument("--hops", type=int, default=1)
     d.set_defaults(func=cmd_demo)
+
+    sw = sub.add_parser("sweep"); common(sw)
+    sw.add_argument("--prompt", default=None)
+    sw.add_argument("--seqlen", type=int, default=8)
+    sw.add_argument("--pos", type=int, default=-1)
+    sw.add_argument("--topk", type=int, default=3, help="top active dims to probe per step")
+    sw.add_argument("--kscale", type=float, default=3.0)
+    sw.add_argument("--threshold", type=float, default=0.02)
+    sw.set_defaults(func=cmd_sweep)
 
     a = p.parse_args()
     a.func(a)
