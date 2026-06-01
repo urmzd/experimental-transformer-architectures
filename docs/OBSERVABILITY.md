@@ -84,5 +84,27 @@ not to crack open an existing opaque one. It cannot be applied post-hoc to GPT-4
 the architecture has to be designed this way. The bet is that capable models can
 be observable *from the start*.
 
+## Early evidence that it can be free (2026-06)
+
+Measuring both axes (bits-per-byte for performance, `observe coverage` for
+observability — the fraction of readable active-word sites that are causally
+load-bearing), scaling v8's interaction **width** improved *both at once*:
+
+| v8 variant | params | bpb ↓ | grad-norm | coverage @τ=.05 ↑ |
+|---|---|---|---|---|
+| rank 8  | 164K | 3.46 | 0.04 (starved) |  8% |
+| **rank 32** | 557K | **3.16** | **0.95** | **50%** |
+| depth ×2 (16 hops) | 328K | 3.54 | 0.09 (starved) | 16% |
+
+Going rank 8 → 32 cut bpb **and** raised coverage at every threshold (mean Δlogits
+4.6×), fixed the gradient starvation, and did not memorize (train ≈ val). It also
+beats the opaque-leaning `v12` on coverage at near-equal bpb with ~1/7 the params.
+*Depth* helped neither axis. So the apparent "performance costs observability"
+tension was a cross-architecture artifact; **within an architecture, adding the
+right capacity moved performance and observability together** — the first concrete
+sign that observability at no cost is reachable in this regime. Caveat: these are
+still near-bigram-capability models; the open question remains whether this holds
+as the models get genuinely hard.
+
 See [`apps/cli/observe.py`](../apps/cli/observe.py) for the tooling (`trace`,
-`wordmap`, `causality`, `demo`).
+`wordmap`, `causality`, `demo`, `sweep`, `coverage`).
