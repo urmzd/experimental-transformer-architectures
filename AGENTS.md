@@ -4,7 +4,7 @@
 
 - **Don't change defaults** — use environment variables to override hyperparameters at runtime, not by editing default values in code.
 - **Self-contained repo** — `train.py` is the single entry point for training all models. Shared infrastructure lives in `core/` (config, data loading, eval, quantization, model registry). Model definitions live in their own directories (`v9_linattn/model.py`, etc.) and are auto-discovered by `core/registry.py` via the `version` class attribute.
-- **No embedding, no output projection** — every model operates in vocabulary space. Input is one-hot, output is the register state. Do not add embedding layers or output projections. The sole exception is `v13_with_embedding`, which is the labeled thesis-breaking control — do not reuse it as a template.
+- **No embedding, no output projection** — every model operates in vocabulary space. Input is one-hot, output is the register state. Keeping the whole computation in vocab space is what makes the state *observable* (every activation is a readable distribution over words) — that is the project's goal; do not add embedding layers or output projections. The sole exception is `v13_with_embedding`, an opaque-embedding baseline kept only for comparison — do not reuse it as a template.
 - **Environment variables for everything** — all hyperparameters live in the `Hyperparameters` class in `core/config.py` and are read from env vars. When adding a new model, add its specific env vars there with sensible defaults.
 - **Names describe mechanism, not metaphor** — variant directory names, version strings, and class names should describe the computation performed. Neuroscience / physics / information-theory names (brain waves, Gauss, Thousand Brains, Q-tables, TPGs) are decorative and should not be used as primary identifiers.
 
@@ -115,7 +115,7 @@ train.py
 | `v11a_mixed_ops` | `v11a_mixed_ops/` | Five fixed primitive ops composed sequentially |
 | `v11b_hard_routing` | `v11b_hard_routing/` | Hard Gumbel routing + multi-timescale linattn + halting |
 | `v12_vocab_slice` | `v12_vocab_slice/` | Processing in fixed k-length vocab-id slices |
-| `v13_with_embedding` | `v13_with_embedding/` | **Control variant** — adds learned embedding; violates thesis |
+| `v13_with_embedding` | `v13_with_embedding/` | **Opaque-embedding baseline** — adds learned embedding (for comparison only) |
 | `v14_data_dependent` | `v14_data_dependent/` | Mamba/RWKV/Hyena-style data-dependent dynamics |
 | `v15_aux_loss` | `v15_aux_loss/` | v12 body + per-step CE + top-k + entropy-scaled writes |
 | `v16_multi_branch` | `v16_multi_branch/` | Multi-column ensemble + branched gated MLP |

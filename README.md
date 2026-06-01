@@ -23,7 +23,7 @@ A testbed for **observable language models** — built so you can understand *ho
 
 The approach keeps everything in **vocabulary space**: every architecture shares one mechanism — **hidden dimension = vocab size**, no learned embedding, no output projection — so the register state IS a distribution over words at every step. You can read each intermediate state as "which words are active and how strongly," and watch a prediction form across recurrent steps. Interpretability by construction, not post-hoc probing.
 
-To be clear about what this is *not*: it is not an attempt to drop embeddings or to beat a leaderboard. The small parameter counts and the no-embedding design are **means to observability**. One variant (`v13_with_embedding`) deliberately reintroduces an opaque embedding as a labeled control — a way to measure what observability costs (≈0.82 bpb; see below), not a template to copy.
+To be clear about what this is *not*: it is not a leaderboard entry. Raw scores (bits-per-byte) are only a sanity check that the model computes something real — the research question is whether the readable states genuinely *explain* the computation. See [Observing the computation](#observing-the-computation).
 
 ## Observing the computation
 
@@ -74,21 +74,21 @@ Used here as a **raw-capability yardstick — not the project's goal** (the goal
 | Naive baseline (9-layer, 512-dim transformer) | **1.2244** |
 | Best here (`v12_vocab_slice`) | **3.19** |
 
-We are **~2.5–3× worse than even the naive baseline** — as-is, nothing here lands on the leaderboard. The prime suspect is the core constraint itself: the baseline is a conventional transformer with a 512-dim **embedding**, whereas the no-embedding `hidden_dim = vocab_size = 1024` design forces all computation through a vocab-space bottleneck. We tested this directly with the `v13_with_embedding` control (below) — and the embedding closes ~45% of the gap, confirming the constraint, not the compute budget, is the wall.
+We are **~2.5–3× worse than even the naive baseline** — as-is, nothing here lands on the leaderboard. The prime suspect is the core constraint itself: the baseline is a conventional transformer with a 512-dim **embedding**, whereas the no-embedding `hidden_dim = vocab_size = 1024` design forces all computation through a vocab-space bottleneck. We tested this directly with the `v13_with_embedding` baseline (below) — and the embedding closes ~45% of the gap, confirming the constraint, not the compute budget, is the wall.
 
-### The no-embedding tax, measured (1× H100, identical 600s train budget, 2026-05-31)
+### The cost of readability, measured (1× H100, identical 600s train budget, 2026-05-31)
 
 `v13_with_embedding` shares v12's exact body and differs only by a learned `Embedding(V, d) → Linear(d, V)`:
 
 | `MODEL_VERSION` | Embedding? | Params | Steps | val_bpb | final grad-norm |
 |---|---|---|---|---|---|
-| **v13_with_embedding** | yes (control) | 4.46M | 894 | **2.256** | 2.56 |
+| **v13_with_embedding** | yes (baseline) | 4.46M | 894 | **2.256** | 2.56 |
 | v12_vocab_slice | no | 4.20M | 945 | 3.079 | 0.28 |
 | v8_lowrank_vv | no | 0.16M | 477 | 3.427 | 0.04 |
 
 Adding the embedding drops bpb **3.08 → 2.26 (≈0.82 bpb)** and closes ~45% of the gap to the 1.2244 baseline — in fewer steps. The per-step gradient norm (logged via `grad_norm`) tracks this exactly: v8 is gradient-starved (~0.04 — clipping never fires, it plateaus), v12 is healthy (~0.28), v13 learns hard (~2.56 — gradient clipping engages). v8's 164K capacity is an additional wall: it stops improving with more compute, while v12 keeps descending (3.19 → 3.08 with more steps).
 
-**Framing:** the readable vocab-space state is the *point* of this project — **interpretability and observability**, not the leaderboard. This "tax" measures what readability costs in raw modeling capability; whether the readable states deliver understanding worth ~0.8 bpb is the real open question, and one these bits-per-byte benchmarks do not measure. `v13_with_embedding` is the deliberately-opaque control here, not a template to copy.
+**Framing:** the readable vocab-space state is the *point* of this project — **interpretability and observability**, not the leaderboard. This "tax" measures what readability costs in raw modeling capability; whether the readable states deliver understanding worth ~0.8 bpb is the real open question, and one these bits-per-byte benchmarks do not measure. `v13_with_embedding` is the deliberately-opaque baseline here, not a template to copy.
 
 ### What these results mean
 
@@ -134,7 +134,7 @@ Repeat N times:
 Output: register state -> softcap -> cross-entropy loss
 ```
 
-No embedding. No output projection. (Except `v13_with_embedding`, the labeled control.)
+No embedding. No output projection. (Except `v13_with_embedding`, the opaque baseline kept for comparison.)
 
 ## Model Versions
 
@@ -161,11 +161,11 @@ Names describe mechanism, not metaphor.
 | `v15_aux_loss` | v12 body + per-step CE + top-k sparsity | Entropy-adaptive write scaling | Training-side additions on v12 |
 | `v16_multi_branch` | Per-column decay memory | Branched gated MLP + cross-column inhibition | Ensemble + gated branches |
 
-### Control variant
+### Opaque baseline (kept for comparison)
 
 | `MODEL_VERSION` | Purpose |
 |---|---|
-| `v13_with_embedding` | **Thesis-breaking control.** Adds `Embedding(V, d) -> Linear(d, V)` before the register state (same body as `v12_vocab_slice`). Exists to measure what the no-embedding constraint costs; do not reuse as a template. |
+| `v13_with_embedding` | **Opaque-embedding baseline** (for comparison only). Adds `Embedding(V, d) -> Linear(d, V)` before the register state (same body as `v12_vocab_slice`). Exists solely to measure what readability costs (≈0.82 bpb); the rest of the project keeps the state readable. Not a template. |
 
 ## Quick Start
 

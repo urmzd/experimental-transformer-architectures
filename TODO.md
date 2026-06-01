@@ -32,7 +32,7 @@ Tooling now lives in `apps/cli/observe.py` (`observe trace|wordmap|causality|dem
 - [~] Causality probe built (`observe causality`); needs a **trained checkpoint** to return a real load-bearing/decorative verdict (untrained models read as decorative, correctly)
 - [ ] Faithfulness/causality on **real text + a trained checkpoint** (the prior runs didn't save weights — retrain and `save_checkpoint`, then probe)
 - [ ] Define a quantitative interpretability metric beyond planted recovery (e.g. state→output agreement, human-legible rationale) and measure across variants
-- [ ] Is readability worth its cost? Compare interpretability of the no-embedding variants vs the opaque `v13_with_embedding` control (which buys −0.82 bpb with an unreadable embedding)
+- [ ] Is readability worth its cost? Compare interpretability of the readable variants vs the opaque `v13_with_embedding` baseline (which buys −0.82 bpb with an unreadable embedding)
 
 ## Parameter Golf (capability yardstick — NOT the goal)
 
