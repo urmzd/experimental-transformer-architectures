@@ -34,7 +34,8 @@ Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo|sweep|cove
 - [x] Causality probe (`observe causality`, magnitude-scaled / logit-space) + per-depth map (`observe sweep`), run on **real trained checkpoints** (saved in `artifacts/checkpoints/`)
 - [x] **Quantitative interpretability metric — faithfulness coverage** (`observe coverage`, 14 real-text prompts, 672 sites, τ-curve): the verdict is *threshold-dependent*, and the curves cross. **v8 = broad but shallow** (82/50/8% at τ=.01/.02/.05; diffuse causality, median Δ 0.020). **v12 = sparse but strong** (43/41/32%; most sites dead, median Δ≈0, but load-bearing sites hit ~4× harder). So "more observable" is architecture-dependent, not one scalar.
 - [ ] kscale sensitivity + larger prompt set; consider a magnitude-weighted coverage (weight sites by activation mass)
-- [ ] Track coverage *jointly with* bpb as capability rises. So far: v8 (3.46 bpb, broad-shallow) vs v12 (3.13 bpb, sparse-strong) — better bpb came with *concentrated* faithfulness and large dead zones. "No cost" = improve bpb without hollowing out the readable computation.
+- [x] **Track coverage jointly with bpb — first positive "no cost" evidence (2026-06).** Scaling v8's *width* (rank 8→32) improved **both** axes at once: bpb 3.46→3.16 **and** coverage up at every τ (50%→70% @τ.02, 8%→50% @τ.05), while fixing gradient starvation (grad 0.04→0.95) with no memorization (train≈val). It also dominates v12's coverage at ~equal bpb and 1/7th the params. *Depth* (steps 8→16) helped neither (3.54 bpb, still starved). Lesson: the v8→v12 "tension" was a cross-architecture artifact; within v8, capacity moved it toward the top-right.
+- [ ] Push further: rank 64/128 (watch for memorization), and apply the same width lever to v12; confirm the both-axes-improve trend holds and find where it breaks.
 
 ### B. Performance — close the gap *without* losing observability
 
