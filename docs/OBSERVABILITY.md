@@ -98,6 +98,7 @@ i.e. **no memorization at any rank**):
 | rank 32  | 557K  | 3.16 | 70% | 50% | 35% | 0.049 |
 | rank 64  | 1.08M | 2.99 | 85% | 69% | 30% | 0.068 |
 | **rank 128** | 2.13M | **2.88** | **87%** | 63% | **49%** | **0.094** |
+| rank 256 | 4.23M | 3.07 | 74% | 43% | 28% | 0.037 |
 | _depth ×2 (16 hops)_ | 328K | _3.54_ | _71%_ | _16%_ | _3%_ | _0.029_ |
 
 Width is a clean lever: bpb falls monotonically (3.46 → 2.88), coverage rises across
@@ -115,6 +116,21 @@ performance and observability together** — a width-scaling law that is the fir
 solid evidence observability at no cost is reachable here. Caveat: these are still
 near-bigram-capability models on a tiny corpus; the open question remains whether
 it holds as the models get genuinely hard.
+
+**Where it breaks — and why it matters.** Past the compute-optimal point the law
+inverts, but tellingly *both axes regress together*: at fixed 600s, rank 256 (4.2M
+params) is undertrained and lands at 3.07 bpb with coverage back down to 74/43% —
+worse on performance **and** observability than rank 128. bpb and coverage are
+**coupled, not traded** — when the model is well-trained both rise, when it is
+undertrained both fall. That coupling is exactly what "no cost" means. The sweet
+spot at this budget is ~rank 128; going wider needs more compute, not just more
+parameters.
+
+**The lever is architecture-specific.** "Just make it wider" does not transfer
+naively: widening v12's MLP 4× (`INNER_MUL=8`) made it *worse* (3.13 → 3.20 bpb) and
+ballooned it to 10.5M params — capacity added in the wrong place, then undertrained.
+Width helps only when it widens the architecture's actual bottleneck (for v8, the
+low-rank word→word interaction).
 
 See [`apps/cli/observe.py`](../apps/cli/observe.py) for the tooling (`trace`,
 `wordmap`, `causality`, `demo`, `sweep`, `coverage`).
