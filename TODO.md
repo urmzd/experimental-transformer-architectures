@@ -27,14 +27,14 @@ The thesis is that you can have **both** — a model whose computation is readab
 
 ### A. Observability — is the readable state real?
 
-Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo`).
+Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo|sweep|coverage`).
 
 - [x] Observability trace (`observe trace`): top-k active vocab dims of the register state at each step
 - [x] `v8_lowrank_vv` word→word map (`observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`observe demo`, chance ≈3%)
-- [~] Causality probe built (`observe causality`); needs a **trained checkpoint** to return a real load-bearing/decorative verdict (untrained models read as decorative, correctly)
-- [ ] Faithfulness/causality on **real text + a trained checkpoint** (the prior runs didn't save weights — retrain and `save_checkpoint`, then probe)
-- [ ] Define a quantitative interpretability metric beyond planted recovery (e.g. state→output agreement, human-legible rationale) and measure across variants
-- [ ] Track observability *jointly with* bpb as capability improves — does the state stay readable as the model gets better? (the entire claim is that it can)
+- [x] Causality probe (`observe causality`, magnitude-scaled / logit-space) + per-depth map (`observe sweep`), run on **real trained checkpoints** (saved in `artifacts/checkpoints/`)
+- [x] **Quantitative interpretability metric — faithfulness coverage** (`observe coverage`): fraction of readable active-word sites that are causally load-bearing, over real-text prompts. First scores: **v8 = 48.8%** (distributed across hops 0–6; hop7 = 0%) vs **v12 = 39.6%** (bimodal — steps 0/3/7 high, steps 2/4/5/6 ≈ 0%)
+- [ ] Robust coverage: average over more prompts/positions + sensitivity to threshold/kscale (current: 5 sentences, top-2 dims, τ=0.02)
+- [ ] Track coverage *jointly with* bpb as capability rises — first two points already show the tension: v8 (3.46 bpb, 48.8%) → v12 (3.13 bpb, 39.6%) = performance up, coverage down. "No cost" means closing bpb *without* this drop.
 
 ### B. Performance — close the gap *without* losing observability
 

@@ -285,6 +285,64 @@ def cmd_sweep(a):
     print(f"\n  load-bearing steps (Δlogits > {a.threshold}): {load or 'none at probed sites'}")
 
 
+_COVERAGE_SENTENCES = [
+    "The quick brown fox jumps over the lazy dog.",
+    "In the beginning the universe was created from nothing.",
+    "Machine learning models predict the next token in a sequence.",
+    "She walked into the room and quietly sat down by the window.",
+    "Water freezes at zero degrees and boils at one hundred degrees.",
+]
+
+
+def cmd_coverage(a):
+    """Faithfulness coverage: the fraction of readable active-word sites that are
+    causally load-bearing, averaged over real-text prompts. One number for the
+    observability axis, to track against bits-per-byte (the performance axis)."""
+    torch.manual_seed(0)
+    model = load_model(a.version, a.checkpoint)
+    if a.tokenizer:
+        import sentencepiece as spm
+        sp = spm.SentencePieceProcessor(model_file=a.tokenizer)
+        prompts = [sp.encode(s, out_type=int) for s in _COVERAGE_SENTENCES]
+    else:  # fallback: out-of-distribution random prompts
+        prompts = [torch.randint(0, model.vocab_size, (16,)).tolist() for _ in range(5)]
+    prompts = [p for p in prompts if len(p) >= 4]
+
+    n_sites = n_faithful = 0
+    sum_rel = 0.0
+    per_step_tot, per_step_faith = {}, {}
+    for ids in prompts:
+        input_ids = torch.tensor(ids).unsqueeze(0)
+        labels, base, V = capture_register_states(model, input_ids)
+        if not base:
+            continue
+        L = len(ids)
+        for pos in sorted({max(L // 3, 1), 2 * L // 3, L - 1}):
+            base_final = base[-1][0, pos]
+            denom = base_final.abs().sum().item() + 1e-9
+            for s in range(len(base)):
+                mid = base[s][0, pos]
+                scale = float(mid.abs().max())
+                for dim in mid.abs().topk(min(a.topk, V)).indices.tolist():
+                    best = 0.0
+                    for delta in (-mid[dim].item(), a.kscale * scale, -a.kscale * scale):
+                        _, ps, _ = capture_register_states(model, input_ids, perturb=(s, pos, dim, delta))
+                        best = max(best, (ps[-1][0, pos] - base_final).abs().sum().item() / denom)
+                    n_sites += 1
+                    sum_rel += best
+                    faith = best > a.threshold
+                    n_faithful += int(faith)
+                    per_step_tot[labels[s]] = per_step_tot.get(labels[s], 0) + 1
+                    per_step_faith[labels[s]] = per_step_faith.get(labels[s], 0) + int(faith)
+    cov = n_faithful / max(n_sites, 1)
+    print(f"version={a.version}  prompts={len(prompts)}  sites_probed={n_sites}  (Δlogits>{a.threshold} = load-bearing)")
+    print(f"  FAITHFULNESS COVERAGE = {cov * 100:.1f}%    mean Δlogits = {sum_rel / max(n_sites, 1):.4f}")
+    print("  per-step coverage:")
+    for lbl in per_step_tot:
+        t, f = per_step_tot[lbl], per_step_faith[lbl]
+        print(f"   {lbl:>10}: {f:>3}/{t:<3} = {100 * f / max(t, 1):3.0f}%")
+
+
 # --------------------------------------------------------------------------- #
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -330,6 +388,12 @@ def main():
     sw.add_argument("--kscale", type=float, default=3.0)
     sw.add_argument("--threshold", type=float, default=0.02)
     sw.set_defaults(func=cmd_sweep)
+
+    cv = sub.add_parser("coverage"); common(cv)
+    cv.add_argument("--topk", type=int, default=2, help="top active dims probed per step")
+    cv.add_argument("--kscale", type=float, default=3.0)
+    cv.add_argument("--threshold", type=float, default=0.02)
+    cv.set_defaults(func=cmd_coverage)
 
     a = p.parse_args()
     a.func(a)
