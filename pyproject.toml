@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 setup-data = "data.download_data:main"
 benchmark = "apps.cli.benchmark:main"
+observe = "apps.cli.observe:main"
 
 [project.optional-dependencies]
 cuda = [

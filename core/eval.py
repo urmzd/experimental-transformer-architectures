@@ -36,6 +36,9 @@ def eval_val(args, model, rank, world_size, device, grad_accum_steps, val_tokens
         raise ValueError("VAL_BATCH_SIZE too small")
     lbs = lbt // args.train_seq_len
     total_seqs = (val_tokens.numel() - 1) // args.train_seq_len
+    val_max_tokens = getattr(args, "val_max_tokens", 0)
+    if val_max_tokens > 0:
+        total_seqs = min(total_seqs, max(val_max_tokens // args.train_seq_len, 1))
     ss, se = (total_seqs * rank) // world_size, (total_seqs * (rank + 1)) // world_size
     loss_sum = torch.zeros((), device=device, dtype=torch.float64)
     tok_count = torch.zeros((), device=device, dtype=torch.float64)

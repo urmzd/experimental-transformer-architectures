@@ -76,6 +76,7 @@ train.py
 | `GRAD_ACCUM_STEPS` | 16 | Gradient accumulation |
 | `TRAIN_BATCH_TOKENS` | 524288 | Global batch size in tokens |
 | `MAX_WALLCLOCK_SECONDS` | None | Wall-clock time limit (must be set manually, no default) |
+| `VAL_MAX_TOKENS` | 0 | Cap validation to the first N tokens (0 = full set). Set >0 for fast eval during experimentation; leave 0 for a faithful bits-per-byte score |
 | `ITERATIONS` | 500 | Max training iterations |
 | `TORCH_COMPILE` | 0 | Enable torch.compile |
 | `ROUNDTRIP_EVAL` | 0 | Run int8 quantization roundtrip eval after training |

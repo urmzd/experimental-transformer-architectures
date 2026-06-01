@@ -225,8 +225,12 @@ def main():
             (loss * grad_scale).backward()
             train_loss_accum += loss.item() * grad_scale
 
-        if args.grad_clip_norm > 0:
-            torch.nn.utils.clip_grad_norm_(base_model.parameters(), args.grad_clip_norm)
+        # Capture the pre-clip gradient norm for logging. max_norm=inf computes
+        # the norm without clipping, so we still get the value when clipping is off.
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            base_model.parameters(),
+            args.grad_clip_norm if args.grad_clip_norm > 0 else float("inf"),
+        )
         optimizer.step()
         torch.cuda.synchronize()
 
@@ -234,7 +238,7 @@ def main():
         approx_ms = train_ms + 1000.0 * (time.perf_counter() - t0)
         step += 1
         if master and args.train_log_every > 0 and (step <= 10 or step % args.train_log_every == 0):
-            log0(f"step:{step}/{args.iterations} train_loss:{train_loss_accum:.4f} time:{approx_ms:.0f}ms avg:{approx_ms / step:.1f}ms tok/s:{args.train_batch_tokens / (step_ms / 1000):.0f}")
+            log0(f"step:{step}/{args.iterations} train_loss:{train_loss_accum:.4f} grad_norm:{grad_norm:.3f} time:{approx_ms:.0f}ms avg:{approx_ms / step:.1f}ms tok/s:{args.train_batch_tokens / (step_ms / 1000):.0f}")
         if max_wc_ms and stop_after is None and approx_ms >= max_wc_ms:
             stop_after = step
         if args.checkpoint_every > 0 and step % args.checkpoint_every == 0:
@@ -285,6 +289,7 @@ def main():
             "decay_init": args.decay_init,
             "steps_trained": step,
             "final_train_loss": train_loss_accum if step > start_step else None,
+            "final_grad_norm": float(grad_norm) if step > start_step else None,
             "val_loss": vl,
             "val_bpb": vbpb,
             "train_time_ms": train_ms,
