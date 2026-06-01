@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">Experimental Transformer Architectures</h1>
   <p align="center">
-    17 experimental language model architectures where hidden dimension equals vocabulary size. The register state IS the prediction at every step.
+    A testbed for <em>observable</em> language models: hidden dimension equals vocabulary size, so every register state is a readable distribution over words. Built to understand how the computation works — not to win a benchmark.
     <br /><br />
     <a href="#quick-start">Quick Start</a>
     &middot;
@@ -15,15 +15,15 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/urmzd/experimental-transformer-architectures" alt="License"></a>
 </p>
 
-Exploring whether vocabulary-space computation, where every hidden state is a readable distribution over words, can match opaque-embedding architectures at language modeling.
+The problem these experiments attack: frontier language models are **billions of opaque parameters with no faithful way to see how they compute** or to link internal activity to meaning. The goal here is **understanding how the system works and operates** — architectures (and the tooling around them) where the computation is observable *by construction*. Whether you can drop embeddings is not the question; embeddings were never the problem — opacity at scale is.
 
 ## What This Is
 
-A collection of 17 experimental language model architectures that share one constraint: **hidden dimension = vocabulary size**. There is no learned embedding and no output projection. The register state IS the prediction. Every intermediate state is interpretable as "which words are active and how strongly."
+A testbed for **observable language models** — built so you can understand *how they operate*, not just measure how well they score. The motivation is the opacity of modern LMs: billions of parameters, no faithful way to trace what the computation does or to link one internal representation to the next.
 
-This constraint is genuinely novel — no published architecture we're aware of operates this way. Whether it's a good idea is an open question we're trying to answer empirically.
+The approach keeps everything in **vocabulary space**: every architecture shares one mechanism — **hidden dimension = vocab size**, no learned embedding, no output projection — so the register state IS a distribution over words at every step. You can read each intermediate state as "which words are active and how strongly," and watch a prediction form across recurrent steps. Interpretability by construction, not post-hoc probing.
 
-One variant (`v13_with_embedding`) deliberately breaks the constraint as a labeled control.
+To be clear about what this is *not*: it is not an attempt to drop embeddings or to beat a leaderboard. The small parameter counts and the no-embedding design are **means to observability**. One variant (`v13_with_embedding`) deliberately reintroduces an opaque embedding as a labeled control — a way to measure what observability costs (≈0.82 bpb; see below), not a template to copy.
 
 ## What We've Found So Far
 
