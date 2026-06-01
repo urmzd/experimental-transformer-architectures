@@ -27,14 +27,14 @@ The thesis is that you can have **both** — a model whose computation is readab
 
 ### A. Observability — is the readable state real?
 
-Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo`).
+Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo|sweep|coverage`).
 
 - [x] Observability trace (`observe trace`): top-k active vocab dims of the register state at each step
 - [x] `v8_lowrank_vv` word→word map (`observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`observe demo`, chance ≈3%)
-- [~] Causality probe built (`observe causality`); needs a **trained checkpoint** to return a real load-bearing/decorative verdict (untrained models read as decorative, correctly)
-- [ ] Faithfulness/causality on **real text + a trained checkpoint** (the prior runs didn't save weights — retrain and `save_checkpoint`, then probe)
-- [ ] Define a quantitative interpretability metric beyond planted recovery (e.g. state→output agreement, human-legible rationale) and measure across variants
-- [ ] Track observability *jointly with* bpb as capability improves — does the state stay readable as the model gets better? (the entire claim is that it can)
+- [x] Causality probe (`observe causality`, magnitude-scaled / logit-space) + per-depth map (`observe sweep`), run on **real trained checkpoints** (saved in `artifacts/checkpoints/`)
+- [x] **Quantitative interpretability metric — faithfulness coverage** (`observe coverage`, 14 real-text prompts, 672 sites, τ-curve): the verdict is *threshold-dependent*, and the curves cross. **v8 = broad but shallow** (82/50/8% at τ=.01/.02/.05; diffuse causality, median Δ 0.020). **v12 = sparse but strong** (43/41/32%; most sites dead, median Δ≈0, but load-bearing sites hit ~4× harder). So "more observable" is architecture-dependent, not one scalar.
+- [ ] kscale sensitivity + larger prompt set; consider a magnitude-weighted coverage (weight sites by activation mass)
+- [ ] Track coverage *jointly with* bpb as capability rises. So far: v8 (3.46 bpb, broad-shallow) vs v12 (3.13 bpb, sparse-strong) — better bpb came with *concentrated* faithfulness and large dead zones. "No cost" = improve bpb without hollowing out the readable computation.
 
 ### B. Performance — close the gap *without* losing observability
 
