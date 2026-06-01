@@ -291,6 +291,15 @@ _COVERAGE_SENTENCES = [
     "Machine learning models predict the next token in a sequence.",
     "She walked into the room and quietly sat down by the window.",
     "Water freezes at zero degrees and boils at one hundred degrees.",
+    "The president signed the bill into law on Tuesday afternoon.",
+    "He opened the old wooden box and found a faded photograph inside.",
+    "Researchers published their findings in a peer reviewed journal.",
+    "The river flooded the village after three days of heavy rain.",
+    "A small startup announced a new product at the conference today.",
+    "Children laughed and played in the park until the sun went down.",
+    "The recipe calls for two cups of flour and a pinch of salt.",
+    "Investors worried about rising interest rates and falling stocks.",
+    "The ancient temple stood quietly at the edge of the desert.",
 ]
 
 
@@ -308,9 +317,9 @@ def cmd_coverage(a):
         prompts = [torch.randint(0, model.vocab_size, (16,)).tolist() for _ in range(5)]
     prompts = [p for p in prompts if len(p) >= 4]
 
-    n_sites = n_faithful = 0
-    sum_rel = 0.0
-    per_step_tot, per_step_faith = {}, {}
+    import statistics
+    rels = []                 # per-site best Δlogits across all prompts/positions
+    per_step_rels = {}
     for ids in prompts:
         input_ids = torch.tensor(ids).unsqueeze(0)
         labels, base, V = capture_register_states(model, input_ids)
@@ -328,19 +337,20 @@ def cmd_coverage(a):
                     for delta in (-mid[dim].item(), a.kscale * scale, -a.kscale * scale):
                         _, ps, _ = capture_register_states(model, input_ids, perturb=(s, pos, dim, delta))
                         best = max(best, (ps[-1][0, pos] - base_final).abs().sum().item() / denom)
-                    n_sites += 1
-                    sum_rel += best
-                    faith = best > a.threshold
-                    n_faithful += int(faith)
-                    per_step_tot[labels[s]] = per_step_tot.get(labels[s], 0) + 1
-                    per_step_faith[labels[s]] = per_step_faith.get(labels[s], 0) + int(faith)
-    cov = n_faithful / max(n_sites, 1)
-    print(f"version={a.version}  prompts={len(prompts)}  sites_probed={n_sites}  (Δlogits>{a.threshold} = load-bearing)")
-    print(f"  FAITHFULNESS COVERAGE = {cov * 100:.1f}%    mean Δlogits = {sum_rel / max(n_sites, 1):.4f}")
-    print("  per-step coverage:")
-    for lbl in per_step_tot:
-        t, f = per_step_tot[lbl], per_step_faith[lbl]
-        print(f"   {lbl:>10}: {f:>3}/{t:<3} = {100 * f / max(t, 1):3.0f}%")
+                    rels.append(best)
+                    per_step_rels.setdefault(labels[s], []).append(best)
+
+    n = len(rels)
+    print(f"version={a.version}  prompts={len(prompts)}  sites_probed={n}")
+    print(f"  mean Δlogits = {sum(rels) / max(n, 1):.4f}   median = {statistics.median(rels) if rels else 0:.4f}")
+    print("  FAITHFULNESS COVERAGE (fraction of sites with Δlogits > τ) — robustness to τ:")
+    for t in (0.01, 0.02, 0.05, 0.10):
+        cov = sum(1 for r in rels if r > t) / max(n, 1)
+        print(f"     τ={t:<5}: {cov * 100:5.1f}%")
+    print(f"  per-step coverage (τ={a.threshold}):")
+    for lbl, rs in per_step_rels.items():
+        c = sum(1 for r in rs if r > a.threshold) / max(len(rs), 1)
+        print(f"   {lbl:>10}: {100 * c:3.0f}%  (mean Δ {sum(rs) / max(len(rs), 1):.3f})")
 
 
 # --------------------------------------------------------------------------- #

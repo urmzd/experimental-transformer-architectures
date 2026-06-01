@@ -32,9 +32,9 @@ Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo|sweep|cove
 - [x] Observability trace (`observe trace`): top-k active vocab dims of the register state at each step
 - [x] `v8_lowrank_vv` word→word map (`observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`observe demo`, chance ≈3%)
 - [x] Causality probe (`observe causality`, magnitude-scaled / logit-space) + per-depth map (`observe sweep`), run on **real trained checkpoints** (saved in `artifacts/checkpoints/`)
-- [x] **Quantitative interpretability metric — faithfulness coverage** (`observe coverage`): fraction of readable active-word sites that are causally load-bearing, over real-text prompts. First scores: **v8 = 48.8%** (distributed across hops 0–6; hop7 = 0%) vs **v12 = 39.6%** (bimodal — steps 0/3/7 high, steps 2/4/5/6 ≈ 0%)
-- [ ] Robust coverage: average over more prompts/positions + sensitivity to threshold/kscale (current: 5 sentences, top-2 dims, τ=0.02)
-- [ ] Track coverage *jointly with* bpb as capability rises — first two points already show the tension: v8 (3.46 bpb, 48.8%) → v12 (3.13 bpb, 39.6%) = performance up, coverage down. "No cost" means closing bpb *without* this drop.
+- [x] **Quantitative interpretability metric — faithfulness coverage** (`observe coverage`, 14 real-text prompts, 672 sites, τ-curve): the verdict is *threshold-dependent*, and the curves cross. **v8 = broad but shallow** (82/50/8% at τ=.01/.02/.05; diffuse causality, median Δ 0.020). **v12 = sparse but strong** (43/41/32%; most sites dead, median Δ≈0, but load-bearing sites hit ~4× harder). So "more observable" is architecture-dependent, not one scalar.
+- [ ] kscale sensitivity + larger prompt set; consider a magnitude-weighted coverage (weight sites by activation mass)
+- [ ] Track coverage *jointly with* bpb as capability rises. So far: v8 (3.46 bpb, broad-shallow) vs v12 (3.13 bpb, sparse-strong) — better bpb came with *concentrated* faithfulness and large dead zones. "No cost" = improve bpb without hollowing out the readable computation.
 
 ### B. Performance — close the gap *without* losing observability
 
