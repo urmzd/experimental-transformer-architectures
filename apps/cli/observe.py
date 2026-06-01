@@ -162,29 +162,41 @@ def cmd_causality(a):
     labels, base_states, V = capture_register_states(model, input_ids)
     if not base_states:
         print("No step modules found to probe."); return
-    p_step = a.step if a.step >= 0 else len(base_states) - 2  # perturb a mid state
+    p_step = a.step if a.step >= 0 else max(0, len(base_states) - 2)  # a mid state
     p_step = max(0, min(p_step, len(base_states) - 1))
-    dim = a.dim if a.dim >= 0 else int(base_states[p_step][0, pos].argmax())
-    base_pred = F.softmax(base_states[-1][0, pos], dim=-1)
+    mid = base_states[p_step][0, pos]
+    # Perturb the dim the state actually has "on" (top-active word), unless told otherwise.
+    dim = a.dim if a.dim >= 0 else int(mid.abs().argmax())
+    scale = float(mid.abs().max())                  # local state magnitude (NOT a fixed delta)
+    base_final = base_states[-1][0, pos]            # the register state IS the logits (pre-softcap)
+    base_pred = F.softmax(base_final, dim=-1)
 
-    rows = []
-    for delta in (a.delta, -a.delta):
-        _, pert_states, _ = capture_register_states(
-            model, input_ids, perturb=(p_step, pos, dim, delta))
-        pert_pred = F.softmax(pert_states[-1][0, pos], dim=-1)
-        kl = F.kl_div(pert_pred.clamp_min(1e-9).log(), base_pred, reduction="sum").item()
-        top_changed = int(pert_pred.argmax()) != int(base_pred.argmax())
-        rows.append((delta, kl, top_changed))
-    print(f"version={a.version} vocab={V}")
-    print(f"Perturbing register dim {dim} at step {labels[p_step]}, position {pos}, by ±{a.delta}:")
-    print(f"  baseline top-1 prediction dim = {int(base_pred.argmax())} (p={base_pred.max():.3f})")
-    for delta, kl, changed in rows:
-        print(f"  delta={delta:+.2f}: KL(next-word dist shift)={kl:.4f}  top-1 changed={changed}")
-    avg_kl = sum(r[1] for r in rows) / len(rows)
-    verdict = ("LOAD-BEARING (readable state causally drives the prediction)"
-               if avg_kl > a.threshold else
-               "WEAK/DECORATIVE (perturbation barely moves the output)")
-    print(f"\n  mean KL = {avg_kl:.4f}  ->  {verdict}")
+    # Interventions scaled to the state, so they bite regardless of magnitude:
+    #   ablate  -> set the active word's dim to 0
+    #   boost / suppress -> +/- k * (local magnitude)
+    interventions = [
+        ("ablate", -mid[dim].item()),
+        ("boost", a.kscale * scale),
+        ("suppress", -a.kscale * scale),
+    ]
+    print(f"version={a.version} vocab={V}  step={labels[p_step]} pos={pos} dim={dim}")
+    print(f"  baseline top-1 = dim {int(base_pred.argmax())} (p={base_pred.max():.3f}); "
+          f"|state|max at step = {scale:.1f}")
+    best = 0.0
+    for name, delta in interventions:
+        _, ps, _ = capture_register_states(model, input_ids, perturb=(p_step, pos, dim, delta))
+        pf = ps[-1][0, pos]
+        # Logit-space change is the primary signal — softmax saturation hides post-softmax KL.
+        rel = (pf - base_final).abs().sum().item() / (base_final.abs().sum().item() + 1e-9)
+        pred = F.softmax(pf, dim=-1)
+        kl = F.kl_div(pred.clamp_min(1e-9).log(), base_pred, reduction="sum").item()
+        changed = int(pred.argmax()) != int(base_pred.argmax())
+        best = max(best, rel)
+        print(f"  {name:8} Δlogits(rel L1)={rel:.4f}  KL={kl:.4f}  top1_changed={changed}")
+    verdict = ("LOAD-BEARING (perturbing the active word moves the output)"
+               if best > a.threshold else
+               "WEAK / not load-bearing at this site (output barely moves)")
+    print(f"\n  max Δlogits(rel) = {best:.4f}  ->  {verdict}")
 
 
 def cmd_demo(a):
@@ -256,8 +268,8 @@ def main():
     c.add_argument("--pos", type=int, default=-1)
     c.add_argument("--step", type=int, default=-1)
     c.add_argument("--dim", type=int, default=-1)
-    c.add_argument("--delta", type=float, default=5.0)
-    c.add_argument("--threshold", type=float, default=0.01)
+    c.add_argument("--kscale", type=float, default=3.0, help="boost/suppress = k * local state magnitude")
+    c.add_argument("--threshold", type=float, default=0.02, help="rel. logit change to call it load-bearing")
     c.set_defaults(func=cmd_causality)
 
     d = sub.add_parser("demo")
