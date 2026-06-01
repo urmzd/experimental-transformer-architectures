@@ -25,6 +25,19 @@ The approach keeps everything in **vocabulary space**: every architecture shares
 
 To be clear about what this is *not*: it is not an attempt to drop embeddings or to beat a leaderboard. The small parameter counts and the no-embedding design are **means to observability**. One variant (`v13_with_embedding`) deliberately reintroduces an opaque embedding as a labeled control — a way to measure what observability costs (≈0.82 bpb; see below), not a template to copy.
 
+## Observing the computation
+
+The point of word-space states is that you can read the computation directly. [`apps/cli/observe.py`](apps/cli/observe.py) (`observe <cmd>`):
+
+| Command | What it shows |
+|---|---|
+| `observe trace` | top-k active words in the register state after each step, for a prompt — watch a prediction form |
+| `observe wordmap` | for v8, the learned word→word interaction matrix `W = U@Vᵀ + diag(d)` ("which word activates which") |
+| `observe causality` | perturb one vocab dimension mid-computation, measure how far the predicted next-word distribution moves — is the readable state *load-bearing* or decorative? |
+| `observe demo` | controlled faithfulness check: train v8 on a planted bigram (`next[i] = perm[i]`), then verify the map recovers it |
+
+**Faithfulness result (the central claim, tested).** On the planted-bigram demo, the recovered map `argmax_j W[i,j]` matches the true `perm[i]` for **100% of words** (chance ≈ 3%) — in this controlled setting, reading the weights tells the truth. The open questions are whether that readability holds on real text and at scale, and whether the states are causally load-bearing (run `observe causality` on a trained checkpoint to check). This is the actual research frontier — not the bits-per-byte score.
+
 ## What We've Found So Far
 
 ### Historical benchmark (10 min, 3× A40, batch 491,520 tokens)

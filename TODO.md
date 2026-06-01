@@ -25,10 +25,13 @@
 
 The goal is NOT the leaderboard — it is whether vocab-space computation lets us **map tokens and understand why the model predicts what it does**. Because every hidden state is a distribution over the vocabulary, the computation should be readable *by construction*. Open work to actually test that:
 
-- [ ] Observability trace: for a fixed prompt, log the top-k active vocab dims of the register state at each recurrent step — watch the prediction form
-- [ ] `v8_lowrank_vv`: export the low-rank V×V interaction matrix (`U@Vᵀ + diag`) as a readable "word i → word j" map; compare against an empirical bigram table
-- [ ] Causality check: intervene on a vocab dimension mid-computation and verify the output shifts predictably (states should be mechanistically load-bearing, not just readable)
-- [ ] Define and measure an interpretability/observability metric (e.g. how well the intermediate state predicts the final output, or yields a human-legible rationale) across variants
+Tooling now lives in `apps/cli/observe.py` (`observe trace|wordmap|causality|demo`).
+
+- [x] Observability trace (`observe trace`): top-k active vocab dims of the register state at each step
+- [x] `v8_lowrank_vv` word→word map (`observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`observe demo`, chance ≈3%)
+- [~] Causality probe built (`observe causality`); needs a **trained checkpoint** to return a real load-bearing/decorative verdict (untrained models read as decorative, correctly)
+- [ ] Faithfulness/causality on **real text + a trained checkpoint** (the prior runs didn't save weights — retrain and `save_checkpoint`, then probe)
+- [ ] Define a quantitative interpretability metric beyond planted recovery (e.g. state→output agreement, human-legible rationale) and measure across variants
 - [ ] Is readability worth its cost? Compare interpretability of the no-embedding variants vs the opaque `v13_with_embedding` control (which buys −0.82 bpb with an unreadable embedding)
 
 ## Parameter Golf (capability yardstick — NOT the goal)
