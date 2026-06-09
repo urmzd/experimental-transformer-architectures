@@ -21,7 +21,6 @@ processing interpretation. README status: shape bug fixed, trained but not
 competitive.
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -25,7 +25,6 @@ Mechanism is a form of input-conditional mixture-of-experts in vocab
 space. Untested per README.
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

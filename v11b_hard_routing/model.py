@@ -25,7 +25,6 @@ originally chosen "TPG" label referred to Tangled Program Graphs, which
 is not what the implementation actually does.
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -89,7 +88,6 @@ class HardOpBank(nn.Module):
         op_logits: (B, T, n_ops) raw logits from policy
         tau: Gumbel temperature (anneal during training)
         """
-        hard = not self.training or True  # always hard route
         route = gumbel_hard_route(op_logits, tau=tau, hard=True)
 
         result = torch.zeros_like(x)

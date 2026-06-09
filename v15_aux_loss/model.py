@@ -139,7 +139,7 @@ class PredictiveRegisterStep(nn.Module):
         mask = torch.zeros_like(x)
         mask.scatter_(-1, topk_idx, 1.0)
         # Straight-through: mask in forward, pass gradients through
-        return x * mask + x.detach() * (1 - mask) - x.detach() * (1 - mask)
+        return x * mask + (x - x.detach()) * (1 - mask)
 
     def forward(self, x: Tensor) -> Tensor:
         B, T, V = x.shape

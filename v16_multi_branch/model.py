@@ -203,8 +203,6 @@ class CorticalColumn(nn.Module):
                  inner_mul: int, n_branches: int, activation: str,
                  decay_init: float, column_idx: int, total_columns: int):
         super().__init__()
-        # Offset this column's routing to avoid overlap with other columns
-        col_offset = column_idx * (vocab_size // total_columns)
         self.steps = nn.ModuleList([
             ColumnStep(
                 vocab_size, k_active, inner_mul, n_branches, activation,

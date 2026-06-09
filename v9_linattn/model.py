@@ -22,7 +22,6 @@ Per step has its own projection weights. Multiple steps = stacked linear
 attention layers.
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

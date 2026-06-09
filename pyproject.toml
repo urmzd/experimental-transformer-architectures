@@ -11,6 +11,7 @@ dependencies = [
     "huggingface_hub",
     "pydantic>=2",
     "pydantic-settings>=2.13.1",
+    "torch>=2.4",
 ]
 
 [project.scripts]
@@ -18,20 +19,22 @@ setup-data = "data.download_data:main"
 benchmark = "apps.cli.benchmark:main"
 observe = "apps.cli.observe:main"
 
-[project.optional-dependencies]
-cuda = [
-    "torch>=2.4",
-]
-mlx = [
-    "mlx>=0.16",
-]
+[dependency-groups]
 dev = [
     "pytest>=8",
+    "ruff>=0.8",
 ]
 
 [tool.setuptools.packages.find]
 include = ["data", "core", "apps", "apps.*"]
 
 [tool.uv]
-default-groups = []
 package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+# E701/E702 (one-line compound statements) and E741 (short loop names) are
+# existing house style throughout the training and observe code.
+ignore = ["E701", "E702", "E741"]

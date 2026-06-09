@@ -44,7 +44,7 @@ class ScheduleConfig(BaseSettings):
     val_loss_every: int = 1000
     train_log_every: int = 200
     iterations: int = 500
-    warmdown_iters: int = 1200
+    warmdown_iters: int = 100
     warmup_steps: int = 20
     train_batch_tokens: int = 524_288
     train_seq_len: int = 1024
