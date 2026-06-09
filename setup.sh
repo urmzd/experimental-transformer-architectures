@@ -10,7 +10,7 @@ cd /workspace
 cd experimental-transformer-architectures
 
 # Install deps into system Python (torchrun uses system Python, not venv)
-uv pip install --system -r pyproject.toml
+uv pip install --system -e .
 
 # Download data
 python data/download_data.py --variant sp1024

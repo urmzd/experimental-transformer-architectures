@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import torch
 
+from core.quantize import is_control_tensor
 from core.registry import get_registry, build_model
 
 
@@ -35,13 +36,9 @@ def benchmark_model(name, make_fn, vocab_size, batch, seq_len, n_iters, device):
         if use_bf16:
             model = model.to(device).bfloat16()
             # Keep small params in fp32 (mirrors train.py logic)
-            control_patterns = (
-                "scale", "bias", "logit", "coeffs", "decay", "diag",
-                "mix", "weight", "freq", "op_logits", "op_weights", "op_biases",
-            )
             with torch.no_grad():
                 for pname, p in model.named_parameters():
-                    if (p.ndim < 2 or any(pat in pname for pat in control_patterns)) and p.dtype != torch.float32:
+                    if (p.ndim < 2 or is_control_tensor(pname)) and p.dtype != torch.float32:
                         p.data = p.data.float()
         else:
             model = model.to(device).float()
@@ -60,14 +57,21 @@ def benchmark_model(name, make_fn, vocab_size, batch, seq_len, n_iters, device):
         loss.backward()
         model.zero_grad(set_to_none=True)
 
-        # Timed forward+backward
+        # Timed forward+backward (CUDA launches are async; sync before each timestamp)
+        def sync():
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+
         fwd_times, bwd_times, losses = [], [], []
         for _ in range(n_iters):
+            sync()
             t0 = time.perf_counter()
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=(device.type == "cuda")):
                 loss = model(input_ids, target_ids)
+            sync()
             t1 = time.perf_counter()
             loss.backward()
+            sync()
             t2 = time.perf_counter()
 
             fwd_times.append(t1 - t0)
@@ -108,7 +112,7 @@ def benchmark_model(name, make_fn, vocab_size, batch, seq_len, n_iters, device):
             "avg_grad": avg_grad,
             "max_grad": max_grad,
             "dead_params": n_dead,
-            "tok_per_s": batch * seq_len / (sum(fwd_times) / len(fwd_times)),
+            "tok_per_s": batch * seq_len / ((sum(fwd_times) + sum(bwd_times)) / len(fwd_times)),
         }
 
     except Exception as e:

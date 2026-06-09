@@ -11,4 +11,5 @@ logs/
 .DS_Store
 data/datasets/
 data/tokenizers/
-exp_agi_models.egg-info/
+*.egg-info/
+artifacts/checkpoints/

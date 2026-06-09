@@ -8,6 +8,7 @@ import io
 import json
 import os
 import random
+import subprocess
 import time
 import zlib
 from datetime import datetime
@@ -23,8 +24,8 @@ from core.config import Hyperparameters
 from core.data import DistributedTokenLoader, load_validation_tokens
 from core.eval import build_sentencepiece_luts, eval_val
 from core.quantize import (
-    CONTROL_TENSOR_NAME_PATTERNS,
     dequantize_state_dict_int8,
+    is_control_tensor,
     quantize_state_dict_int8,
 )
 from core.registry import get_registry, build_model
@@ -97,7 +98,7 @@ def main():
     # Keep small control params in fp32
     with torch.no_grad():
         for name, p in base_model.named_parameters():
-            if (p.ndim < 2 or any(pat in name for pat in CONTROL_TENSOR_NAME_PATTERNS)) and p.dtype != torch.float32:
+            if (p.ndim < 2 or is_control_tensor(name)) and p.dtype != torch.float32:
                 p.data = p.data.float()
 
     n_params = sum(p.numel() for p in base_model.parameters())
@@ -108,7 +109,7 @@ def main():
         dist.barrier()
     log0(f"[init] wrapping with DDP (distributed={distributed})")
     model = DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
-    log0(f"[init] DDP ready")
+    log0("[init] DDP ready")
 
     optimizer = torch.optim.Adam(
         base_model.parameters(),
@@ -139,6 +140,9 @@ def main():
     train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
 
     max_wc_ms = 1000.0 * args.max_wallclock_seconds if args.max_wallclock_seconds else None
+    if max_wc_ms is None and 0 < args.iterations <= args.warmdown_iters:
+        log0(f"[warn] warmdown_iters ({args.warmdown_iters}) >= iterations ({args.iterations}): "
+             f"LR starts below base and decays to zero; base LR is never reached")
 
     def lr_mul(step, elapsed_ms):
         if args.warmdown_iters <= 0:
@@ -175,24 +179,22 @@ def main():
         }, ckpt_path)
         log0(f"checkpoint:{ckpt_path} step:{step}")
 
-    # Warmup (skip if resuming)
+    # Warmup (skip if resuming): forward+backward only, no optimizer step.
+    # Updating params here would be uncounted training outside the wallclock
+    # budget; this only exercises kernels/allocator. The loader is NOT reset
+    # afterwards, so training continues the token stream without replay.
     log0(f"[init] starting warmup ({args.warmup_steps} steps)")
     if start_step == 0:
         for ws in range(args.warmup_steps):
-            optimizer.zero_grad(set_to_none=True)
             for _ in range(grad_accum_steps):
                 x, y = train_loader.next_batch(args.train_batch_tokens, args.train_seq_len, grad_accum_steps)
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     loss = model(x, y)
                 (loss * grad_scale).backward()
-            if args.grad_clip_norm > 0:
-                torch.nn.utils.clip_grad_norm_(base_model.parameters(), args.grad_clip_norm)
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
             torch.cuda.synchronize()
-            if master and (ws + 1) % 10 == 0 or ws + 1 == args.warmup_steps:
+            if master and ((ws + 1) % 10 == 0 or ws + 1 == args.warmup_steps):
                 log0(f"warmup:{ws + 1}/{args.warmup_steps}")
-
-    train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
 
     # Training
     train_ms = 0.0
@@ -269,9 +271,20 @@ def main():
             log0(f"final_int8_zlib_roundtrip val_loss:{qvl:.4f} val_bpb:{qvbpb:.4f}")
 
         # Write manifest
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent, text=True,
+            ).strip()
+        except Exception:
+            git_sha = None
         manifest = {
             "run_id": args.run_id,
             "model_version": args.model_version,
+            "seed": args.seed,
+            "git_sha": git_sha,
+            "torch_version": torch.__version__,
+            "cuda_version": torch.version.cuda,
+            "gpu_name": torch.cuda.get_device_name(device),
             "params": n_params,
             "trainable": n_trainable,
             "raw_bytes": raw_bytes,
@@ -287,7 +300,14 @@ def main():
             "lr": args.lr,
             "activation": args.activation,
             "decay_init": args.decay_init,
+            "train_seq_len": args.train_seq_len,
+            "warmup_steps": args.warmup_steps,
+            "iterations": args.iterations,
+            "max_wallclock_seconds": args.max_wallclock_seconds,
+            "protocol": (f"wallclock-{args.max_wallclock_seconds:g}s"
+                         if args.max_wallclock_seconds else f"fixed-{args.iterations}-iter"),
             "steps_trained": step,
+            "tokens_seen": step * args.train_batch_tokens,
             "final_train_loss": train_loss_accum if step > start_step else None,
             "final_grad_norm": float(grad_norm) if step > start_step else None,
             "val_loss": vl,
@@ -298,6 +318,7 @@ def main():
             "batch_tokens": args.train_batch_tokens,
             "model_path": out,
             "quantized_path": qpath,
+            "config": args.to_dict(),
         }
         manifest_path = f"logs/{args.run_id}_manifest.json"
         with open(manifest_path, "w") as f:

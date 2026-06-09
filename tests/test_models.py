@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+import torch.nn.functional as F
 
 from core.registry import get_registry, build_model
 
@@ -48,3 +49,80 @@ def test_backward(version):
 
     has_grad = any(p.grad is not None for p in model.parameters())
     assert has_grad, "At least one parameter should have a gradient"
+
+
+def _forward_logits(model, input_ids):
+    """Capture the per-position (B, T, V) logits a forward pass produces.
+
+    Models return only a scalar loss, so the logits are intercepted at the
+    F.cross_entropy call every variant ends with. This sees the true output
+    after all functional post-processing, including variants whose final state
+    never passes through a hookable module (v1/v4/v6/v7 weight-shared loops).
+    """
+    vocab = _SMALL_ARGS.vocab_size
+    real_ce = F.cross_entropy
+    captured = []
+
+    def spy(logits, *args, **kwargs):
+        if isinstance(logits, torch.Tensor) and logits.numel() == input_ids.numel() * vocab:
+            captured.append(logits.detach().reshape(*input_ids.shape, vocab).clone())
+        return real_ce(logits, *args, **kwargs)
+
+    F.cross_entropy = spy
+    try:
+        with torch.no_grad():
+            model(input_ids, torch.zeros_like(input_ids))
+    finally:
+        F.cross_entropy = real_ce
+    return captured
+
+
+@pytest.mark.parametrize("position", [1, SEQ // 2, SEQ - 1])
+@pytest.mark.parametrize("version", list(get_registry().keys()))
+def test_causal_masking_no_future_leakage(version, position):
+    """Changing the input at one position must not move logits anywhere before it.
+
+    A future-token leak in any variant would look like an architecture win on
+    next-token metrics, so the prefix is required to be bit-identical, not
+    approximately equal. Seeds are reset before each forward so stochastic
+    models (v11b Gumbel) draw identical noise for both inputs.
+    """
+    torch.manual_seed(0)
+    model = build_model(version, _SMALL_ARGS).float().eval()
+    x1 = torch.randint(0, _SMALL_ARGS.vocab_size, (BATCH, SEQ))
+    x2 = x1.clone()
+    x2[:, position] = (x2[:, position] + 1) % _SMALL_ARGS.vocab_size
+
+    torch.manual_seed(1)
+    logits1 = _forward_logits(model, x1)
+    torch.manual_seed(1)
+    logits2 = _forward_logits(model, x2)
+
+    assert logits1, "no (B, T, V) logits reached F.cross_entropy"
+    assert len(logits1) == len(logits2)
+    for l1, l2 in zip(logits1, logits2):
+        assert torch.equal(l1[:, :position], l2[:, :position]), \
+            f"input at position {position} leaked into earlier logits"
+    assert any(not torch.equal(l1[:, position:], l2[:, position:])
+               for l1, l2 in zip(logits1, logits2)), \
+        "perturbation never reached the logits; the test has no power"
+
+
+def test_v15_sparsity_straight_through():
+    """_enforce_sparsity masks to top-k in forward but passes full gradients.
+
+    A plain top-k mask zeroes gradients at every non-top-k position, silently
+    killing learning through the sparsity bottleneck — the straight-through
+    estimator must keep the backward pass an identity.
+    """
+    from v15_aux_loss.model import PredictiveRegisterStep
+
+    step = PredictiveRegisterStep(vocab_size=32, k_active=16, sparsity_k=4)
+    x = torch.randn(2, 3, 32, requires_grad=True)
+
+    out = step._enforce_sparsity(x)
+
+    assert int((out != 0).sum(-1).max()) <= 4, "forward must keep only top-k"
+    out.sum().backward()
+    assert torch.all(x.grad == 1.0), \
+        "gradient must pass through zeroed positions (straight-through)"

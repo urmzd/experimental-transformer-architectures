@@ -12,8 +12,6 @@ Produces:
 """
 
 import argparse
-import io
-import struct
 import tempfile
 from pathlib import Path
 

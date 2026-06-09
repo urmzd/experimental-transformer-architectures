@@ -25,7 +25,6 @@ Memorizes at rank 64 (train loss ~0.04, val stays high) because the
 rank-64 mixer has capacity to store a bigram lookup table.
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

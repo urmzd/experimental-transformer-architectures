@@ -9,16 +9,22 @@ CONTROL_TENSOR_NAME_PATTERNS = (
     # v4 additions
     "diag", "mix_down", "mix_up", "decay_logits", "_override",
     # gauss additions
-    "freq_to_ch", "ch_to_freq", "weight",
+    "freq_to_ch", "ch_to_freq",
     # lgp additions
     "op_logits", "op_weights", "op_biases",
     # graph additions
-    "q_scale", "k_scale", "diag", "prop_scale", "interact_scale",
+    "q_scale", "k_scale", "prop_scale", "interact_scale",
     # tpg additions
     "halt_proj", "act_selector", "scale_gate", "t_scale",
     # sparse register additions (v12)
-    "mem_scale", "write_scale", "mlp_bias",
+    "write_scale", "mlp_bias",
 )
+
+
+def is_control_tensor(name: str) -> bool:
+    """Suffix match only: a substring rule once included "weight", which matched
+    every nn.Linear ``*.weight`` and silently kept whole models in fp32."""
+    return any(name.endswith(p) for p in CONTROL_TENSOR_NAME_PATTERNS)
 
 INT8_CLIP_Q = 99.99984 / 100.0
 INT8_KEEP_FLOAT_MAX_NUMEL = 65_536
@@ -38,7 +44,7 @@ def quantize_state_dict_int8(sd):
             stats["int8_payload_bytes"] += t.numel() * t.element_size()
             continue
         if t.numel() <= INT8_KEEP_FLOAT_MAX_NUMEL:
-            if any(p in name for p in CONTROL_TENSOR_NAME_PATTERNS):
+            if is_control_tensor(name):
                 kept = t.float().contiguous()
             elif t.dtype in {torch.float32, torch.bfloat16}:
                 passthrough_orig_dtypes[name] = str(t.dtype).removeprefix("torch.")

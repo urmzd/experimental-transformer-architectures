@@ -76,7 +76,7 @@ The two limits above force the real objective: a model that is **both** as good 
 an opaque baseline **and** observable. Observability bought by crippling the model
 proves nothing (you've just built a readable bad model); the interesting result is
 readability that survives competitive performance. That is why this project
-measures performance and observability *jointly*, and treats the ~0.82 bpb gap to
+measures performance and observability *jointly*, and treats the ~0.87 bpb gap to
 the opaque `v13` baseline as a gap to *eliminate*, not a price to pay.
 
 One more limit worth stating plainly: this is a way to *build* observable models,
@@ -84,37 +84,51 @@ not to crack open an existing opaque one. It cannot be applied post-hoc to GPT-4
 the architecture has to be designed this way. The bet is that capable models can
 be observable *from the start*.
 
-## Early evidence that it can be free (2026-06)
+## Width sweep (2026-06): what the committed evidence supports
 
-Measuring both axes (bits-per-byte for performance, `observe coverage` for
-observability — the fraction of readable active-word sites that are causally
-load-bearing), scaling v8's interaction **width** improves *both at once*, and the
-trend holds across the whole sweep (600s each on 1× H100; train ≈ val throughout,
-i.e. **no memorization at any rank**):
+The hypothesis worth testing: scaling v8's interaction **width** (the rank of the
+low-rank V×V layer) improves both axes at once — bits-per-byte for performance,
+`observe coverage` for observability (the fraction of readable active-word sites
+that are causally load-bearing). The committed sweep artifacts
+(`artifacts/rank{8,16,32,64}_manifest.json`; model_version `v8_graph`, the
+pre-rename id for `v8_lowrank_vv`; 165 steps, ~300 s wall-clock, 3 GPUs,
+batch 491,520 tokens per run) record:
 
-| v8 width | params | bpb ↓ | cov @τ.02 | @τ.05 | @τ.10 | median Δlogits |
-|---|---|---|---|---|---|---|
-| rank 8   | 164K  | 3.46 | 50% |  8% |  2% | 0.020 |
-| rank 32  | 557K  | 3.16 | 70% | 50% | 35% | 0.049 |
-| rank 64  | 1.08M | 2.99 | 85% | 69% | 30% | 0.068 |
-| **rank 128** | 2.13M | **2.88** | **87%** | 63% | **49%** | **0.094** |
-| _depth ×2 (16 hops)_ | 328K | _3.54_ | _71%_ | _16%_ | _3%_ | _0.029_ |
+| v8 width | params | train loss | val loss | val bpb |
+|---|---|---|---|---|
+| rank 8  | 164K  | 4.85 | 4.84 | 2.87 |
+| rank 16 | 295K  | 5.39 | 5.38 | 3.19 |
+| rank 32 | 557K  | 4.35 | 4.33 | 2.56 |
+| rank 64 | 1.08M | 0.87 | 0.79 | 0.47 |
 
-Width is a clean lever: bpb falls monotonically (3.46 → 2.88), coverage rises across
-thresholds, and causal *strength* (median Δlogits) climbs ~5×. At rank ≥ 64 the
-probed sites are **100% load-bearing through hops 0–6** — only the final hop (a
-saturation/refinement tail) is inert. v8 rank-8's plateau was **gradient starvation
-from under-capacity** (grad-norm 0.04, fixed to 0.2–0.95 once widened), not the
-architecture. **Depth** (more hops at fixed width) helped neither axis. The rank-128
-model — fully readable, no embedding, 2.13M params — reaches 2.88 bpb, below the
-opaque-leaning `v12` (3.13) and closing on the embedded `v13` baseline (2.26).
+Two things follow from the committed data. bpb is **not monotone in rank**
+(2.87 → 3.19 → 2.56), and the rank-64 run is a **memorization/leakage signal,
+not a result**: 0.47 val bpb at 1.08M params would beat the Parameter Golf
+record (~1.061) by more than 2×, which is not credible. It points the same way
+as the rank-64 memorization seen in the earlier 3× A40 run, not against it.
 
-So the apparent "performance costs observability" tension was a *cross-architecture*
-artifact (v8 vs v12); **within an architecture, adding the right capacity moves
-performance and observability together** — a width-scaling law that is the first
-solid evidence observability at no cost is reachable here. Caveat: these are still
-near-bigram-capability models on a tiny corpus; the open question remains whether
-it holds as the models get genuinely hard.
+> **Under revision (methodology corrected 2026-06-09: the published sweep table
+> matched no committed manifest).** This section previously claimed bpb 3.46
+> (rank 8), 3.16 (rank 32), 2.99 (rank 64), 2.88 (rank 128); coverage rising
+> 50% → 87% @τ=0.02; median Δlogits 0.020 → 0.094; a depth-×2 control at 3.54;
+> "600 s each on 1× H100"; and "train ≈ val throughout — no memorization at any
+> rank". None of that is reproducible from the committed artifacts: every
+> recorded bpb differs, the runs were 3-GPU and ~300 s, no rank-128 manifest
+> exists, and the rank-64 artifact contradicts the no-memorization claim
+> outright. The coverage column has no committed source either. The old numbers
+> are kept here for the record only; treat the "width-scaling law" and the
+> "rank-8 plateau was gradient starvation" diagnosis as unverified hypotheses
+> until `scripts/rank_sweep.sh` regenerates the sweep with committed manifests
+> at multiple seeds.
+
+> **Precision note (methodology corrected 2026-06-09):** v8's custom `U`/`V`
+> parameter names always escaped the control-tensor bug, so the sweep rows above
+> trained bf16. The cross-architecture references (`v12` at 3.24, `v13` at 2.37
+> in `artifacts/benchmark_results.json`) come from runs whose master weights
+> stayed fp32 because of a stray `"weight"` control pattern; forwards still ran
+> bf16 autocast, so bpb is comparable, but the precision/memory regimes were not
+> identical. Re-run the v8/v12/v13 comparison under the corrected regime before
+> citing close margins.
 
 See [`apps/cli/observe.py`](../apps/cli/observe.py) for the tooling (`trace`,
-`wordmap`, `causality`, `demo`, `sweep`, `coverage`).
+`wordmap`, `causality`, `demo`, `sweep`, `coverage`, `induction`).

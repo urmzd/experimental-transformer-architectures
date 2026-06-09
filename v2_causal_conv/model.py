@@ -29,7 +29,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from core.base import AgiModel, CommonSettings
+from core.base import AgiModel
 from pydantic_settings import BaseSettings
 
 

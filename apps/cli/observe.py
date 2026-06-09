@@ -74,13 +74,19 @@ def capture_register_states(model, input_ids, perturb=None):
     def make_hook(idx):
         def hook(_mod, _inp, out):
             o = out[0] if isinstance(out, tuple) else out
+            perturbed = False
             if perturb is not None:
                 p_idx, pos, dim, delta = perturb
                 if idx == p_idx:
                     o = o.clone()
                     o[:, pos, dim] = o[:, pos, dim] + delta
+                    perturbed = True
             captured.append(o.detach().float())
-            return o
+            if not perturbed:
+                # Returning a value would REPLACE the module output (and drop the
+                # rest of a tuple output); capture must not alter the forward.
+                return None
+            return (o, *out[1:]) if isinstance(out, tuple) else o
         return hook
 
     for i, (_label, mod) in enumerate(steps):
@@ -232,7 +238,7 @@ def cmd_demo(a):
     W = inter.U.detach() @ inter.V.detach().T + torch.diag(inter.diag.detach())
     pred_next = W.argmax(dim=1)
     recovery = (pred_next == perm).float().mean().item()
-    print(f"\nPlanted: next[i] = perm[i]. Recovered from W = U@V^T+diag (last hop):")
+    print("\nPlanted: next[i] = perm[i]. Recovered from W = U@V^T+diag (last hop):")
     print(f"  exact word->word recovery (argmax_j W[i,j] == perm[i]): {recovery*100:.1f}%  (chance ≈ {100/V:.1f}%)")
     examples = [f"{i}->{int(pred_next[i])}(true {int(perm[i])})" for i in range(min(8, V))]
     print("  sample edges:", "  ".join(examples))
@@ -418,8 +424,12 @@ def cmd_induction(a):
     pred = states[-1].argmax(-1)
     total = int(mask.sum())
     acc = int(((pred == y) & mask).sum()) / max(total, 1)
-    print(f"\n  query-position accuracy = {acc*100:.1f}%   (chance = bigram ceiling = {100/V:.1f}%)")
-    print(f"  -> {'SOLVES INDUCTION — in-context lookback works (beyond bigram)' if acc > 5.0/V else 'at/near chance — no in-context lookback'}")
+    # A key-free copier (predict any studied value, ignoring the key) scores ~1/P,
+    # so the verdict must clear that ceiling too, not just bigram chance.
+    copier = 1.0 / P
+    print(f"\n  query-position accuracy = {acc*100:.1f}%   (chance = bigram ceiling = {100/V:.1f}%, key-free copier ~ {100*copier:.1f}%)")
+    solves = acc > max(5.0 / V, copier)
+    print(f"  -> {'SOLVES INDUCTION — in-context lookback works (beyond bigram and copier)' if solves else 'at/near chance or copier ceiling — no keyed in-context lookback'}")
 
     x1, y1, m1 = make_batch(1)
     qpos = int(m1[0].nonzero()[0])

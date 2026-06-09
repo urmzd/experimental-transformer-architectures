@@ -35,10 +35,15 @@ The point of word-space states is that you can read the computation directly. [`
 | `observe wordmap` | for v8, the learned word→word interaction matrix `W = U@Vᵀ + diag(d)` ("which word activates which") |
 | `observe causality` | perturb one vocab dimension mid-computation, measure how far the predicted next-word distribution moves — is the readable state *load-bearing* or decorative? |
 | `observe demo` | controlled faithfulness check: train v8 on a planted bigram (`next[i] = perm[i]`), then verify the map recovers it |
+| `observe sweep` | map which (step, word) sites are causally load-bearing vs decorative, across depth |
+| `observe coverage` | the observability number: fraction of readable active-word sites that are causally load-bearing, with robustness across τ thresholds |
+| `observe induction` | beyond-bigram check: train on in-context key→value pairs and test query-position recall against bigram chance *and* the key-free-copier ceiling |
 
 **Faithfulness result (the central claim, tested).** On the planted-bigram demo, the recovered map `argmax_j W[i,j]` matches the true `perm[i]` for **100% of words** (chance ≈ 3%) — in this controlled setting, reading the weights tells the truth. The open questions are whether that readability holds on real text and at scale, and whether the states are causally load-bearing (run `observe causality` on a trained checkpoint to check). This is the actual research frontier — not the bits-per-byte score.
 
 ## What We've Found So Far
+
+> **Precision note (methodology corrected 2026-06-09):** every table below predates a control-tensor fix. A stray `"weight"` entry in `CONTROL_TENSOR_NAME_PATTERNS` matched every `nn.Linear` weight, so all models except `v8_lowrank_vv` (custom `U`/`V` parameter names) kept fp32 master weights instead of the intended bf16. Forward and backward always ran under bf16 autocast, so the loss/bpb numbers stay comparable, but parameter memory, `raw_bytes`, and optimizer-state size were not uniform across models. Numbers are kept as published; re-run under the corrected regime before citing memory figures or close margins.
 
 ### Historical benchmark (10 min, 3× A40, batch 491,520 tokens)
 
@@ -72,31 +77,46 @@ Used here as a **raw-capability yardstick — not the project's goal** (the goal
 |---|---|
 | Best verified leaderboard record (2026-05) | **~1.061** |
 | Naive baseline (9-layer, 512-dim transformer) | **1.2244** |
-| Best here (`v12_vocab_slice`) | **3.19** |
+| Published "best readable" claim (`v8_lowrank_vv` rank 128, 2026-06 width sweep) | 2.88 — under revision (methodology corrected 2026-06-09: matches no committed manifest; see [Width sweep](#width-sweep-2026-06-under-revision)) |
+| Best readable result here (`v12_vocab_slice`, 2026-05 head-to-head) | **3.19** |
 
-We are **~2.5–3× worse than even the naive baseline** — as-is, nothing here lands on the leaderboard. The prime suspect is the core constraint itself: the baseline is a conventional transformer with a 512-dim **embedding**, whereas the no-embedding `hidden_dim = vocab_size = 1024` design forces all computation through a vocab-space bottleneck. We tested this directly with the `v13_with_embedding` baseline (below) — and the embedding closes ~45% of the gap, confirming the constraint, not the compute budget, is the wall.
+We are **~2.6× worse than even the naive baseline** — as-is, nothing here lands on the leaderboard. The prime suspect is the core constraint itself: the baseline is a conventional transformer with a 512-dim **embedding**, whereas the no-embedding `hidden_dim = vocab_size = 1024` design forces all computation through a vocab-space bottleneck. We tested this directly with the `v13_with_embedding` baseline (below) — and the embedding closes ~43% of the gap, confirming the constraint, not the compute budget, is the wall.
 
-### The cost of readability, measured (1× H100, identical 600s train budget, 2026-05-31)
+### The cost of readability, measured (3 GPUs, identical 600s train budget)
 
-`v13_with_embedding` shares v12's exact body and differs only by a learned `Embedding(V, d) → Linear(d, V)`:
+`v13_with_embedding` shares v12's exact body and differs only by a learned `Embedding(V, d) → Linear(d, V)`. From the committed run manifests (`artifacts/benchmark_results.json`, runs `0171d9fb` = `v13_embed` and `ae6c82a6` = `v12_sparse`, the pre-rename version ids):
 
-| `MODEL_VERSION` | Embedding? | Params | Steps | val_bpb | final grad-norm |
-|---|---|---|---|---|---|
-| **v13_with_embedding** | yes (baseline) | 4.46M | 894 | **2.256** | 2.56 |
-| v12_vocab_slice | no | 4.20M | 945 | 3.079 | 0.28 |
-| v8_lowrank_vv | no | 0.16M | 477 | 3.427 | 0.04 |
+| `MODEL_VERSION` | Embedding? | Params | Steps | val_bpb |
+|---|---|---|---|---|
+| **v13_with_embedding** | yes (baseline) | 4.46M | 603 | **2.368** |
+| v12_vocab_slice | no | 4.20M | 636 | 3.236 |
 
-Adding the embedding drops bpb **3.08 → 2.26 (≈0.82 bpb)** and closes ~45% of the gap to the 1.2244 baseline — in fewer steps. The per-step gradient norm (logged via `grad_norm`) tracks this exactly: v8 is gradient-starved (~0.04 — clipping never fires, it plateaus), v12 is healthy (~0.28), v13 learns hard (~2.56 — gradient clipping engages). v8's 164K capacity is an additional wall: it stops improving with more compute, while v12 keeps descending (3.19 → 3.08 with more steps).
+Adding the embedding drops bpb **3.24 → 2.37 (≈0.87 bpb)** and closes ~43% of the gap to the 1.2244 baseline — in fewer steps.
 
-**Framing:** the bar is **performance *and* observability — readability that costs nothing.** So the 0.82 bpb gap between v12 (readable) and `v13_with_embedding` (opaque) is **not a price to accept — it is the gap to eliminate** while keeping the state readable. `v13` is the **performance target**, not a template to copy; the win is a readable model that reaches it. Closing this gap (via training recipe, capacity, and architecture) *without* losing observability is the core research program.
+> **Under revision (methodology corrected 2026-06-09: previously published values matched no committed manifest).** This table previously read v13 4.46M / 894 steps / 2.256 bpb, v12 4.20M / 945 steps / 3.079 bpb, and v8_lowrank_vv 0.16M / 477 steps / 3.427 bpb on "1× H100, 600 s", with final grad-norms 2.56 / 0.28 / 0.04 and a gradient-starvation reading of v8. No committed manifest records those runs, the committed logs contain no per-step `grad_norm` series, and the v8 row has no committed 600 s counterpart at all (the committed rank-8 sweep artifact is a 165-step, ~300 s run at 2.87 bpb). Treat the grad-norm narrative as unverified until the comparison is re-run.
+
+**Framing:** the bar is **performance *and* observability — readability that costs nothing.** So the ~0.87 bpb gap between v12 (readable) and `v13_with_embedding` (opaque) is **not a price to accept — it is the gap to eliminate** while keeping the state readable. `v13` is the **performance target**, not a template to copy; the win is a readable model that reaches it. Closing this gap (via training recipe, capacity, and architecture) *without* losing observability is the core research program.
+
+### Width sweep (2026-06): under revision
+
+The hypothesis: scaling v8's interaction **rank** improves bits-per-byte and causal coverage (`observe coverage`: the fraction of readable active-word sites that are causally load-bearing) at the same time. The committed sweep artifacts (`artifacts/rank{8,16,32,64}_manifest.json`; 165 steps, ~300 s wall-clock, 3 GPUs per run) do not support it yet:
+
+| v8 width | params | train loss | val_bpb |
+|---|---|---|---|
+| rank 8 | 164K | 4.85 | 2.87 |
+| rank 16 | 295K | 5.39 | 3.19 |
+| rank 32 | 557K | 4.35 | 2.56 |
+| rank 64 | 1.08M | 0.87 | 0.47 |
+
+bpb is not monotone in rank, and the rank-64 run is a memorization/leakage signal (0.47 bpb would beat the Parameter Golf record by more than 2×), echoing the rank-64 memorization in the historical run below. A previous version of this section claimed bpb falling monotonically 3.46 → 2.88 through rank 128, coverage rising 50% → 87%, and "no memorization at any rank"; those numbers match no committed manifest and no rank-128 artifact exists, so they are **under revision** (methodology corrected 2026-06-09) — full audit note in [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md). `scripts/rank_sweep.sh` regenerates the sweep with manifests at three seeds.
 
 ### What these results mean
 
-> **Note:** the analysis below reflects the original 3× A40 run and is **superseded** by the head-to-head and no-embedding-tax results above (on the target corpus, v12 > v8; the embedding control reaches 2.26 bpb).
+> **Note:** the analysis below reflects the original 3× A40 run. The head-to-head and embedding-control results above supersede parts of it (on the target corpus, v12 > v8 at rank 8; the embedding control reaches 2.37 bpb). The width-sweep claims that previously superseded the rank-64 memorization finding are under revision; the committed rank-64 sweep artifact shows the same memorization signal.
 
 **The low-rank V x V linear layer (v8) is the best architecture so far.** At rank 8 with 164K params, it reaches val_loss 5.24 in 100 steps — better than v2_conv (353K params, 464 steps) with half the parameters in one-fifth the steps. The train/val gap is essentially zero, confirming it's learning, not memorizing.
 
-**But at rank 64, the same architecture memorizes.** The 1.1M-param version drove train_loss to 0.04 while val_loss stayed high. The rank-64 `U @ V^T` matrix has enough capacity to store a bigram lookup table. Rank 8 can't, so it's forced to learn a compressed, generalizable mapping instead.
+**But at rank 64, the same architecture memorizes.** The 1.1M-param version drove train_loss to 0.04 while val_loss stayed high. The rank-64 `U @ V^T` matrix has enough capacity to store a bigram lookup table. The committed 2026-06 sweep artifact points the same way: `artifacts/rank64_manifest.json` records train loss 0.87 / val 0.47 bpb — implausibly below the Parameter Golf record, a memorization/leakage signal rather than generalization. (An earlier revision of this README claimed the 2026-06 sweep found no memorization at any rank; that claim matched no committed artifact and is withdrawn.)
 
 **This is still far from useful.** val_loss 5.24 (3.10 bpb) is well above the ~1.7 loss needed for 1 bpb. GPT-2 at 124M params achieves ~0.93 bpb. We're at 164K params, so the comparison isn't fair, but the gap is large.
 
@@ -151,7 +171,7 @@ Names describe mechanism, not metaphor.
 | `v5_fft_linattn` | Linear attn with causal decay; Q/K/V/O via rFFT | FFT-based channel mix | Fourier-over-vocab same caveat |
 | `v6_banded_fourier` | Band-partitioned Fourier linattn, gated coupling | Three parallel band projections, gated | 824K, still descending |
 | `v7_soft_ops` | Linear attn with causal decay | Gumbel-soft op-bank + soft register addressing | Unstable, loss spikes |
-| `v8_lowrank_vv` | Diagonal Q/K linear attn, activation similarity | Low-rank V x V (`U @ V^T + diag`) | **Best so far at rank 8** |
+| `v8_lowrank_vv` | Diagonal Q/K linear attn, activation similarity | Low-rank V x V (`U @ V^T + diag`) | **Best architecture** at rank 8 (historical run); 2026-06 width-sweep claims (rank 128 at 2.88 bpb) under revision — no committed manifest |
 | `v9_linattn` | Linear attn with causal decay (dense projections) | MLP bottleneck | 4.2M params, best non-attention variant |
 | `v10_state_cond_op` | Linear attn in compressed state space | State-conditioned soft read/op/write dispatch | Untested |
 | `v11a_mixed_ops` | High-decay EMA + linear-attn | Sigmoid gate, dense layer, low-decay EMA | Trains; bf16 `arange` position bug fixed (2026-05) |
@@ -165,7 +185,7 @@ Names describe mechanism, not metaphor.
 
 | `MODEL_VERSION` | Purpose |
 |---|---|
-| `v13_with_embedding` | **Opaque-embedding baseline** (for comparison only). Adds `Embedding(V, d) -> Linear(d, V)` before the register state (same body as `v12_vocab_slice`). Exists solely to measure what readability costs (≈0.82 bpb); the rest of the project keeps the state readable. Not a template. |
+| `v13_with_embedding` | **Opaque-embedding baseline** (for comparison only). Adds `Embedding(V, d) -> Linear(d, V)` before the register state (same body as `v12_vocab_slice`). Exists solely to measure what readability costs (≈0.87 bpb); the rest of the project keeps the state readable. Not a template. |
 
 ## Quick Start
 
@@ -173,8 +193,9 @@ Names describe mechanism, not metaphor.
 # Setup on RunPod
 curl -sSL https://raw.githubusercontent.com/urmzd/experimental-transformer-architectures/main/setup.sh | bash
 
-# Or manually
-uv pip install --system -r pyproject.toml
+# Or manually. torch is a base dependency; on GPU images that already ship
+# torch (e.g. RunPod), the preinstalled build satisfies it and is left alone.
+uv pip install --system -e .
 python data/download_data.py --variant sp1024
 
 # Train the best model (low-rank V x V, rank 8)
@@ -194,7 +215,7 @@ All hyperparameters configurable via environment variables. See `core/config.py`
 
 **Inductive bias matters more than parameter count.** `v8_lowrank_vv` (164K params, rank 8) beats `v1_shared_attn` (3.4M params, 20x more) because direct dimension-to-dimension interaction is a better prior for language than generic attention in vocab space.
 
-**Too much capacity in the right place enables memorization.** `v8_lowrank_vv` at rank 64 memorizes the training batch (train loss 0.04). At rank 8 it generalizes (train ≈ val). The constraint forces learning.
+**Too much capacity in the right place enables memorization.** `v8_lowrank_vv` at rank 64 memorized the training batch in the original 3× A40 run (train loss 0.04) while rank 8 generalized, and the committed 2026-06 sweep artifact reproduces the signal (`artifacts/rank64_manifest.json`: 0.47 val bpb, implausibly below the Parameter Golf record). An earlier revision claimed the 2026-06 sweep showed train ≈ val at every rank through 128 and re-read the rank-8 result as gradient starvation; that claim matched no committed artifact and is under revision (methodology corrected 2026-06-09; see [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)).
 
 **Fourier-over-vocab parameterization is a structural bottleneck.** `v3_fourier_linattn` and `v5_fft_linattn` both constrain their linear-attention projections to linear combinations of sin/cos over vocab indices. Both got stuck. Vocab ids from BPE have no meaningful ordering, so "smooth over vocab ids" throws away useful capacity. The linear-attention core itself works fine — see `v9_linattn`, which uses dense projections on the same core.
 

@@ -3,7 +3,14 @@ Benchmark CLI — run all (or selected) model versions under identical condition
 and produce a comparison table.
 
 Usage:
-    benchmark [--versions v1_shared_attn,v8_lowrank_vv] [--minutes 10] [--batch 491520] [--warmup 5]
+    benchmark [--versions v1_shared_attn,v8_lowrank_vv] [--minutes 10] [--batch 491520] [--warmup 5] [--seeds 1337,1338,1339]
+
+Protocol notes:
+- Warmup steps in train.py run forward+backward only (no optimizer updates),
+  so no training happens outside the wallclock budget, and the token stream
+  continues into the timed run without replay.
+- Each seed is a full independent run; pass --seeds with several values to get
+  the variance plumbing (aggregate with results.py, which reports mean±std).
 """
 from __future__ import annotations
 
@@ -38,7 +45,7 @@ def detect_gpus() -> int:
         return 1
 
 
-def run_one(version: str, minutes: float, batch: int, warmup: int, nproc: int) -> dict | None:
+def run_one(version: str, minutes: float, batch: int, warmup: int, nproc: int, seed: int) -> dict | None:
     env = {
         **os.environ,
         "MAX_WALLCLOCK_SECONDS": str(int(minutes * 60)),
@@ -49,12 +56,13 @@ def run_one(version: str, minutes: float, batch: int, warmup: int, nproc: int) -
         "TRAIN_BATCH_TOKENS": str(batch),
         "MODEL_VERSION": version,
         "CHECKPOINT_EVERY": "0",
+        "SEED": str(seed),
     }
     cmd = [
         "torchrun", "--standalone", f"--nproc_per_node={nproc}", "train.py",
     ]
     print(f"\n{'='*60}")
-    print(f"  MODEL_VERSION={version}  ({minutes}min, batch={batch})")
+    print(f"  MODEL_VERSION={version}  SEED={seed}  ({minutes}min, batch={batch})")
     print(f"{'='*60}")
     sys.stdout.flush()
     proc = subprocess.Popen(cmd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -84,7 +92,7 @@ def print_table(results: list[dict]):
         print("\nNo results to display.")
         return
 
-    headers = ["version", "params", "steps", "val_loss", "val_bpb", "train_loss", "tok/s", "time_s"]
+    headers = ["version", "seed", "params", "steps", "val_loss", "val_bpb", "train_loss", "tok/s", "time_s"]
     rows = []
     for r in results:
         train_ms = r.get("train_time_ms", 0)
@@ -94,6 +102,7 @@ def print_table(results: list[dict]):
         toks = batch / (avg_ms / 1000) if avg_ms > 0 else 0
         rows.append([
             r.get("model_version", "?"),
+            str(r.get("seed", "?")),
             f"{r.get('params', 0)/1e3:.0f}K",
             str(steps),
             f"{r.get('val_loss', 0):.4f}",
@@ -104,13 +113,13 @@ def print_table(results: list[dict]):
         ])
 
     # Sort by val_bpb ascending
-    rows.sort(key=lambda r: float(r[3]))
+    rows.sort(key=lambda r: float(r[5]))
 
     widths = [max(len(h), max(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
     sep = "  "
     header_line = sep.join(h.rjust(w) for h, w in zip(headers, widths))
     print(f"\n{'='*len(header_line)}")
-    print("  BENCHMARK RESULTS (sorted by val_loss)")
+    print("  BENCHMARK RESULTS (sorted by val_bpb)")
     print(f"{'='*len(header_line)}")
     print(header_line)
     print(sep.join("-" * w for w in widths))
@@ -128,13 +137,15 @@ def save_results(results: list[dict], out: Path):
 def main():
     parser = argparse.ArgumentParser(description="Benchmark model versions under identical conditions")
     parser.add_argument("--versions", type=str, default=None,
-                        help=f"Comma-separated model versions (default: all)")
+                        help="Comma-separated model versions (default: all)")
     parser.add_argument("--minutes", type=float, default=10,
                         help="Wallclock minutes per model (default: 10)")
     parser.add_argument("--batch", type=int, default=491520,
                         help="TRAIN_BATCH_TOKENS (default: 491520)")
     parser.add_argument("--warmup", type=int, default=5,
                         help="Warmup steps (default: 5)")
+    parser.add_argument("--seeds", type=str, default="1337",
+                        help="Comma-separated seeds; each is a full run (default: 1337)")
     parser.add_argument("--output", type=str, default="logs/benchmark_results.json",
                         help="Output JSON path (default: logs/benchmark_results.json)")
     args = parser.parse_args()
@@ -144,16 +155,19 @@ def main():
     except Exception:
         all_versions = ALL_VERSIONS
     versions = args.versions.split(",") if args.versions else all_versions
+    seeds = [int(s) for s in args.seeds.split(",")]
     nproc = detect_gpus()
 
     print(f"Benchmarking {len(versions)} models: {', '.join(versions)}")
-    print(f"  {args.minutes}min each, batch={args.batch}, warmup={args.warmup}, GPUs={nproc}")
+    print(f"  {args.minutes}min each, batch={args.batch}, warmup={args.warmup}, "
+          f"seeds={seeds}, GPUs={nproc}")
 
     results = []
     for v in versions:
-        manifest = run_one(v, args.minutes, args.batch, args.warmup, nproc)
-        if manifest:
-            results.append(manifest)
+        for seed in seeds:
+            manifest = run_one(v, args.minutes, args.batch, args.warmup, nproc, seed)
+            if manifest:
+                results.append(manifest)
 
     print_table(results)
 
