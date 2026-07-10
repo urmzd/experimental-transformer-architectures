@@ -100,7 +100,7 @@ This mirrors TPG's core insight: modularity enables search. A transformer is a m
 
 ## Relationship to Current Implementation
 
-The v3_fourier_linattn codebase (`v3_fourier_linattn/model.py`) already implements the two-phase structure:
+The v3_fourier_linattn codebase (`libs/architectures/src/glassbox_lm/architectures/v3_fourier_linattn/model.py`) already implements the two-phase structure:
 
 - **`FourierRegisterOp`** — the layer-program analog. Within-position register transforms via Fourier-parameterized channel mix.
 - **`AssociativeMemoryStep`** — the association-program analog. Cross-position mixing via causal decay-weighted linear attention.
@@ -111,7 +111,7 @@ The design options above generalize this to support alternative memory structure
 
 ## Relationship to v4_weight_shared
 
-v4_weight_shared (`v4_weight_shared/model.py`) applies size-reduction optimizations to the v3_fourier_linattn architecture, reducing ~329K params to ~101K while preserving the two-phase structure:
+v4_weight_shared (`libs/architectures/src/glassbox_lm/architectures/v4_weight_shared/model.py`) applies size-reduction optimizations to the v3_fourier_linattn architecture, reducing ~329K params to ~101K while preserving the two-phase structure:
 
 - **Shared Q/K projections**: All steps share a single query and key definition ("what is similar"), while keeping V/O unique per step ("what to retrieve" and "how to output"). This reflects the observation that similarity metrics are global while retrieval strategies are local.
 - **Multi-head decay (H=4)**: Each head maintains a different temporal decay rate, allowing simultaneous capture of fast (bigram) and slow (clause-level) dependencies within the associative memory.

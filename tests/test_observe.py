@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from apps.cli.observe import capture_register_states, step_modules
-from core.registry import build_model, get_registry
+from glassbox_lm.cli.observe import capture_register_states, step_modules
+from glassbox_lm.core.registry import build_model, get_registry
 from tests.test_models import _SMALL_ARGS, BATCH, SEQ
 
 

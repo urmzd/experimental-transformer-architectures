@@ -8,7 +8,7 @@ in the root [README](../README.md).
 | Document | Question it answers |
 |---|---|
 | [OBSERVABILITY.md](OBSERVABILITY.md) | **Why** — what the observability problem actually is (mechanism vs I/O boundary), and the honest catches |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | **How** — system layout, shared infrastructure (`core/`), the model-variant contract, entry points, precision regime, provenance discipline |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | **How** — system layout, shared infrastructure (`glassbox_lm.core`), the model-variant contract, entry points, precision regime, provenance discipline |
 | [TESTING.md](TESTING.md) | **How it's verified** — what each test gates, what needs a GPU run instead, results discipline |
 
 ## Working on the repo
@@ -23,7 +23,7 @@ in the root [README](../README.md).
 
 | Document | Purpose |
 |---|---|
-| [INTERESTING_FINDINGS.md](INTERESTING_FINDINGS.md) | CPU microbench (`microbench.py`) results — speed and gradient health, **not** trained quality |
+| [INTERESTING_FINDINGS.md](INTERESTING_FINDINGS.md) | CPU microbench (`glassbox microbench`) results — speed and gradient health, **not** trained quality |
 | [INTERESTING_RESEARCH.md](INTERESTING_RESEARCH.md) | Related work (LMGP, TPGs, Neural GPU, DEQ, Mamba/RWKV/Hyena) |
 | [DESIGN_SHARED_MEMORY.md](DESIGN_SHARED_MEMORY.md) | Design notes for the v3/v4 shared-memory-bank family |
 

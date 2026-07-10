@@ -10,10 +10,10 @@
 - [ ] `v8_lowrank_vv` — extended run at rank 8, measure long-range behavior (720s budget run done; long-range probe still needed)
 
 ## Infrastructure
-- [x] Per-step gradient-norm logging (`train.py` logs `grad_norm`; manifest stores `final_grad_norm`)
+- [x] Per-step gradient-norm logging (the training loop logs `grad_norm`; manifest stores `final_grad_norm`)
 - [ ] MLX support for current models — only v0 has an MLX training script
 - [ ] Wandb/tensorboard logging
-- [x] ~~Add `v11b_hard_routing`, `v11a_mixed_ops`, `v12_vocab_slice` to `run_all.py` model list~~ — `run_all.py` is now registry-driven; no list to maintain
+- [x] ~~Add `v11b_hard_routing`, `v11a_mixed_ops`, `v12_vocab_slice` to `run_all.py` model list~~ — `glassbox run-all` is now registry-driven; no list to maintain
 
 ## Training
 - [x] Checkpoint save/resume
@@ -27,12 +27,12 @@ The thesis is that you can have **both** — a model whose computation is readab
 
 ### A. Observability — is the readable state real?
 
-Tooling: `apps/cli/observe.py` (`observe trace|wordmap|causality|demo|sweep|coverage`).
+Tooling: `apps/cli/src/glassbox_lm/cli/observe.py` (`glassbox observe trace|wordmap|causality|demo|sweep|coverage`).
 
-- [x] Observability trace (`observe trace`): top-k active vocab dims of the register state at each step
-- [x] `v8_lowrank_vv` word→word map (`observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`observe demo`, chance ≈3%)
-- [x] Causality probe (`observe causality`, magnitude-scaled / logit-space) + per-depth map (`observe sweep`), run on **real trained checkpoints** (saved in `artifacts/checkpoints/`)
-- [x] **Quantitative interpretability metric — faithfulness coverage** (`observe coverage`, 14 real-text prompts, 672 sites, τ-curve): the verdict is *threshold-dependent*, and the curves cross. **v8 = broad but shallow** (82/50/8% at τ=.01/.02/.05; diffuse causality, median Δ 0.020). **v12 = sparse but strong** (43/41/32%; most sites dead, median Δ≈0, but load-bearing sites hit ~4× harder). So "more observable" is architecture-dependent, not one scalar.
+- [x] Observability trace (`glassbox observe trace`): top-k active vocab dims of the register state at each step
+- [x] `v8_lowrank_vv` word→word map (`glassbox observe wordmap`); **planted-bigram faithfulness check passes at 100% recovery** (`glassbox observe demo`, chance ≈3%)
+- [x] Causality probe (`glassbox observe causality`, magnitude-scaled / logit-space) + per-depth map (`glassbox observe sweep`), run on **real trained checkpoints** (saved in `artifacts/checkpoints/`)
+- [x] **Quantitative interpretability metric — faithfulness coverage** (`glassbox observe coverage`, 14 real-text prompts, 672 sites, τ-curve): the verdict is *threshold-dependent*, and the curves cross. **v8 = broad but shallow** (82/50/8% at τ=.01/.02/.05; diffuse causality, median Δ 0.020). **v12 = sparse but strong** (43/41/32%; most sites dead, median Δ≈0, but load-bearing sites hit ~4× harder). So "more observable" is architecture-dependent, not one scalar.
 - [ ] kscale sensitivity + larger prompt set; consider a magnitude-weighted coverage (weight sites by activation mass)
 - [ ] ~~**Track coverage jointly with bpb — first positive "no cost" evidence (2026-06).** Scaling v8's *width* (rank 8→32) improved **both** axes at once: bpb 3.46→3.16 **and** coverage up at every τ (50%→70% @τ.02, 8%→50% @τ.05), while fixing gradient starvation (grad 0.04→0.95) with no memorization (train≈val).~~ Under revision (methodology corrected 2026-06-09: these numbers match no committed manifest; the committed sweep artifacts record bpb 2.87/3.19/2.56 at ranks 8/16/32 — see `docs/OBSERVABILITY.md`). Re-run with `scripts/rank_sweep.sh` before re-checking this box.
 - [ ] ~~**Width sweep rank 8/32/64/128 (2026-06): the both-axes trend holds monotonically.** bpb 3.46→3.16→2.99→**2.88**, coverage @τ.02 50→70→85→87%, no memorization at any rank (train≈val).~~ Under revision (methodology corrected 2026-06-09: matches no committed manifest; no rank-128 artifact exists, and `artifacts/rank64_manifest.json` records 0.47 val bpb — a memorization/leakage signal, not "no memorization"). Re-run with `scripts/rank_sweep.sh` before re-checking this box.

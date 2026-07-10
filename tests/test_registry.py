@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 import torch.nn as nn
 
-from core.registry import get_registry, build_model
+from glassbox_lm.core.registry import get_registry, build_model
 
 # Small args for fast instantiation on CPU
 _SMALL_ARGS = SimpleNamespace(

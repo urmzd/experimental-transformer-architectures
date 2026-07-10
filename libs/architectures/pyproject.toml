@@ -1,0 +1,27 @@
+[project]
+name = "glassbox-lm-architectures"
+version = "0.1.0"
+description = "Reference architecture zoo for Glassbox LM: discoverable, self-contained example models"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "glassbox-lm-core",
+    "pydantic-settings>=2.13.1",
+    "torch>=2.4",
+]
+
+# Registers the bundled architectures with glassbox_lm.core.registry.
+# Third-party packages can join the same registry by exposing their own
+# entry point in this group.
+[project.entry-points."glassbox_lm.architectures"]
+bundled = "glassbox_lm.architectures"
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "glassbox_lm.architectures"
+
+[tool.uv.sources]
+glassbox-lm-core = { workspace = true }

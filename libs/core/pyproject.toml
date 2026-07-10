@@ -1,0 +1,19 @@
+[project]
+name = "glassbox-lm-core"
+version = "0.1.0"
+description = "Glassbox LM core: model base class, config, data loading, eval, quantization, and the architecture registry"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pydantic>=2",
+    "pydantic-settings>=2.13.1",
+    "torch>=2.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "glassbox_lm.core"

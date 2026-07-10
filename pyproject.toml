@@ -3,33 +3,27 @@ name = "glassbox-lm"
 version = "0.1.0"
 description = "A language model where each register is a word"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
-    "numpy",
-    "sentencepiece",
-    "huggingface_hub",
-    "pydantic>=2",
-    "pydantic-settings>=2.13.1",
-    "torch>=2.4",
+    "glassbox-lm-cli",
 ]
 
-[project.scripts]
-setup-data = "data.download_data:main"
-benchmark = "apps.cli.benchmark:main"
-observe = "apps.cli.observe:main"
+# Virtual workspace root: `uv sync` installs the CLI app (and, transitively,
+# every lib) as editable workspace members. Not itself an installable package.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/*", "apps/*"]
+
+[tool.uv.sources]
+glassbox-lm-cli = { workspace = true }
 
 [dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.8",
 ]
-
-[tool.setuptools.packages.find]
-include = ["data", "core", "apps", "apps.*"]
-
-[tool.uv]
-package = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

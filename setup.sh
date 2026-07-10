@@ -9,12 +9,15 @@ cd /workspace
 [ -d glassbox-lm ] || git clone https://github.com/urmzd/glassbox-lm.git
 cd glassbox-lm
 
-# Install deps into system Python (torchrun uses system Python, not venv)
-uv pip install --system -e .
+# Install workspace members into system Python (torchrun uses system Python,
+# not a venv). All members are passed explicitly so the local editables
+# resolve each other instead of PyPI.
+uv pip install --system \
+    -e libs/core -e libs/architectures -e libs/data -e libs/training -e apps/cli
 
 # Download data
-python data/download_data.py --variant sp1024
+glassbox data download --variant sp1024
 
 echo "Setup complete. Run training with:"
 echo "  cd /workspace/glassbox-lm"
-echo "  MODEL_VERSION=v8_lowrank_vv torchrun --standalone --nproc_per_node=\$(nvidia-smi -L | wc -l) train.py"
+echo "  MODEL_VERSION=v8_lowrank_vv torchrun --standalone --nproc_per_node=\$(nvidia-smi -L | wc -l) -m glassbox_lm.training"

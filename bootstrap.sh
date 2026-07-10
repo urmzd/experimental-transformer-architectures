@@ -17,11 +17,14 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 grep -q '.local/bin' ~/.bashrc 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# Install deps into system Python (torchrun uses system Python, not venv)
-uv pip install --system -e .
+# Install workspace members into system Python (torchrun uses system Python,
+# not a venv). All members are passed explicitly so the local editables
+# resolve each other instead of PyPI.
+uv pip install --system \
+    -e libs/core -e libs/architectures -e libs/data -e libs/training -e apps/cli
 
 # Download data
-python data/download_data.py --variant sp1024
+glassbox data download --variant sp1024
 
 echo ""
 echo "=== Ready ==="
@@ -31,4 +34,4 @@ echo "# Run v8_lowrank_vv (best variant so far):"
 echo "MODEL_VERSION=v8_lowrank_vv INTERACTION_RANK=8 \\"
 echo "TRAIN_BATCH_TOKENS=491520 GRAD_ACCUM_STEPS=16 \\"
 echo "TRAIN_LOG_EVERY=10 RUN_ID=v8_run \\"
-echo "torchrun --standalone --nproc_per_node=\$(nvidia-smi -L | wc -l) train.py"
+echo "torchrun --standalone --nproc_per_node=\$(nvidia-smi -L | wc -l) -m glassbox_lm.training"

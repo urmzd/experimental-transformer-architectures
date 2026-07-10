@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from core.quantize import is_control_tensor
-from core.registry import get_registry, build_model
+from glassbox_lm.core.quantize import is_control_tensor
+from glassbox_lm.core.registry import get_registry, build_model
 from tests.test_models import _SMALL_ARGS
 
 
@@ -29,7 +29,7 @@ def test_control_tensor_suffix_match():
 
 @pytest.mark.parametrize("version", list(get_registry().keys()))
 def test_train_cast_leaves_no_fp32_weights(version):
-    """Apply train.py's exact cast sequence and assert the precision regime:
+    """Apply the training loop's exact cast sequence and assert the precision regime:
     non-control ndim>=2 params are bf16, control/small params are fp32."""
     model = build_model(version, _SMALL_ARGS).bfloat16()
     with torch.no_grad():

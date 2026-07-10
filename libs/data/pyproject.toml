@@ -1,0 +1,21 @@
+[project]
+name = "glassbox-lm-data"
+version = "0.1.0"
+description = "Glassbox LM data tooling: FineWeb shard/tokenizer download and dataset preparation"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface_hub",
+    "numpy",
+]
+
+[project.optional-dependencies]
+# prepare_code retrains a sentencepiece tokenizer; download-only use skips it.
+prepare = ["sentencepiece"]
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "glassbox_lm.data"

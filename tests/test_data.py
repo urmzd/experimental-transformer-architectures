@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from core.data import (DistributedTokenLoader, TokenStream, load_data_shard,
+from glassbox_lm.core.data import (DistributedTokenLoader, TokenStream, load_data_shard,
                        load_validation_tokens)
 
 MAGIC, FORMAT_VERSION = 20240520, 1

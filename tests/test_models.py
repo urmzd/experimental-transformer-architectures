@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from core.registry import get_registry, build_model
+from glassbox_lm.core.registry import get_registry, build_model
 
 _SMALL_ARGS = SimpleNamespace(
     vocab_size=32, num_steps=2,
@@ -115,7 +115,7 @@ def test_v15_sparsity_straight_through():
     killing learning through the sparsity bottleneck — the straight-through
     estimator must keep the backward pass an identity.
     """
-    from v15_aux_loss.model import PredictiveRegisterStep
+    from glassbox_lm.architectures.v15_aux_loss.model import PredictiveRegisterStep
 
     step = PredictiveRegisterStep(vocab_size=32, k_active=16, sparsity_k=4)
     x = torch.randn(2, 3, 32, requires_grad=True)

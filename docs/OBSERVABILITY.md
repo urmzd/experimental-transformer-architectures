@@ -45,7 +45,7 @@ projection, the *middle* becomes readable in the same units as the boundary:
    directly ("these words active at step 3 → through `W` → these words at step 4")
    instead of reconstructing cross-layer links with activation patching.
 
-Concretely, `observe trace` on a trained v8 shows the prediction *assembling*:
+Concretely, `glassbox observe trace` on a trained v8 shows the prediction *assembling*:
 bytes → morphemes (`ing`, `ed`, `ly`) → words → `the / a / to`. That is reading
 the mechanism, step by step — not just the endpoints.
 
@@ -58,7 +58,7 @@ coordinate system, so understanding is *reading* instead of *reconstructing*.
 Two limits keep this from being a free lunch:
 
 - **Readable ≠ faithful.** A state being legible does not mean it *causes* the
-  output. Measured on real checkpoints (`observe causality`): v8's active word is
+  output. Measured on real checkpoints (`glassbox observe causality`): v8's active word is
   **load-bearing** (boosting it flips the prediction), but v12's probed mid-state
   is **not** (perturbing it changes nothing downstream — readable but
   epiphenomenal at that site). Readability is necessary, not sufficient; causal
@@ -88,7 +88,7 @@ be observable *from the start*.
 
 The hypothesis worth testing: scaling v8's interaction **width** (the rank of the
 low-rank V×V layer) improves both axes at once — bits-per-byte for performance,
-`observe coverage` for observability (the fraction of readable active-word sites
+`glassbox observe coverage` for observability (the fraction of readable active-word sites
 that are causally load-bearing). The committed sweep artifacts
 (`artifacts/rank{8,16,32,64}_manifest.json`; model_version `v8_graph`, the
 pre-rename id for `v8_lowrank_vv`; 165 steps, ~300 s wall-clock, 3 GPUs,
@@ -130,5 +130,6 @@ as the rank-64 memorization seen in the earlier 3× A40 run, not against it.
 > identical. Re-run the v8/v12/v13 comparison under the corrected regime before
 > citing close margins.
 
-See [`apps/cli/observe.py`](../apps/cli/observe.py) for the tooling (`trace`,
+See [`apps/cli/src/glassbox_lm/cli/observe.py`](../apps/cli/src/glassbox_lm/cli/observe.py)
+(`glassbox observe`) for the tooling (`trace`,
 `wordmap`, `causality`, `demo`, `sweep`, `coverage`, `induction`).

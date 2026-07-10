@@ -1,0 +1,29 @@
+[project]
+name = "glassbox-lm-cli"
+version = "0.1.0"
+description = "glassbox: the Glassbox LM command line (list, train, benchmark, observe, results, microbench, data)"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "glassbox-lm-architectures",
+    "glassbox-lm-core",
+    "glassbox-lm-data",
+    "glassbox-lm-training",
+    "torch>=2.4",
+]
+
+[project.scripts]
+glassbox = "glassbox_lm.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "glassbox_lm.cli"
+
+[tool.uv.sources]
+glassbox-lm-architectures = { workspace = true }
+glassbox-lm-core = { workspace = true }
+glassbox-lm-data = { workspace = true }
+glassbox-lm-training = { workspace = true }

@@ -8,8 +8,8 @@ commands and the env-var table are in [AGENTS.md](AGENTS.md).
 ## Setup
 
 ```bash
-uv sync --group dev                          # deps + pytest/ruff (installs benchmark/observe scripts)
-python data/download_data.py --variant sp1024  # only needed for real training/eval
+uv sync --group dev                          # deps + pytest/ruff (installs the `glassbox` CLI: `glassbox benchmark`/`glassbox observe`)
+glassbox data download --variant sp1024      # only needed for real training/eval
 ```
 
 ## Dev loop
@@ -17,7 +17,7 @@ python data/download_data.py --variant sp1024  # only needed for real training/e
 ```bash
 uv run pytest -q            # CPU test suite — must pass
 uv run ruff check .         # lint — must pass (CI runs both on every PR)
-python microbench.py v8_lowrank_vv   # quick CPU sanity for a variant (speed/gradients, not quality)
+glassbox microbench v8_lowrank_vv   # quick CPU sanity for a variant (speed/gradients, not quality)
 ```
 
 Ground rules (the "why" for each is in [AGENTS.md](AGENTS.md) and
@@ -34,17 +34,18 @@ Ground rules (the "why" for each is in [AGENTS.md](AGENTS.md) and
 
 ## Adding a model variant
 
-1. Create `vN_mechanism_description/` with `__init__.py` and `model.py`.
-2. Subclass `AgiModel` (`core/base.py`): set `version` to match the directory
+1. Create `libs/architectures/src/glassbox_lm/architectures/vN_mechanism_description/`
+   with `__init__.py` and `model.py`.
+2. Subclass `AgiModel` (`glassbox_lm.core.base`): set `version` to match the directory
    suffix, implement `forward(input_ids, target_ids) → scalar loss`.
-3. New hyperparameters go in `core/config.py` as env-var-backed fields with
+3. New hyperparameters go in `glassbox_lm.core.config` as env-var-backed fields with
    defaults.
 4. Scalar/gate/scale parameters must stay fp32 under bf16: name them with a
-   suffix in `CONTROL_TENSOR_NAME_PATTERNS` (`core/quantize.py`) or add a new
+   suffix in `CONTROL_TENSOR_NAME_PATTERNS` (`glassbox_lm.core.quantize`) or add a new
    pattern — never one that suffixes ordinary projection weight names.
 5. Run `uv run pytest -q`. Discovery, forward/backward, causal masking,
    precision, and observe-capture tests pick the new version up automatically
-   — `run_all.py`, `benchmark`, and `observe` need no edits either.
+   — `glassbox run-all`, `glassbox benchmark`, and `glassbox observe` need no edits either.
 6. Document it: a row in the root README architecture table, a line in
    what-we've-learned once trained, and `TODO.md` if it opens work.
 

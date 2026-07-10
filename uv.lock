@@ -6,6 +6,16 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
+[manifest]
+members = [
+    "glassbox-lm",
+    "glassbox-lm-architectures",
+    "glassbox-lm-cli",
+    "glassbox-lm-core",
+    "glassbox-lm-data",
+    "glassbox-lm-training",
+]
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -92,41 +102,6 @@ wheels = [
 ]
 
 [[package]]
-name = "glassbox-lm"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "huggingface-hub" },
-    { name = "numpy" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "sentencepiece" },
-    { name = "torch" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "huggingface-hub" },
-    { name = "numpy" },
-    { name = "pydantic", specifier = ">=2" },
-    { name = "pydantic-settings", specifier = ">=2.13.1" },
-    { name = "sentencepiece" },
-    { name = "torch", specifier = ">=2.4" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.8" },
-]
-
-[[package]]
 name = "filelock"
 version = "3.25.2"
 source = { registry = "https://pypi.org/simple" }
@@ -142,6 +117,127 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/51/7c/f60c259dcbf4f0c47cc4ddb8f7720d2dcdc8888c8e5ad84c73ea4531cc5b/fsspec-2026.2.0.tar.gz", hash = "sha256:6544e34b16869f5aacd5b90bdf1a71acb37792ea3ddf6125ee69a22a53fb8bff", size = 313441, upload-time = "2026-02-05T21:50:53.743Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e6/ab/fb21f4c939bb440104cc2b396d3be1d9b7a9fd3c6c2a53d98c45b3d7c954/fsspec-2026.2.0-py3-none-any.whl", hash = "sha256:98de475b5cb3bd66bedd5c4679e87b4fdfe1a3bf4d707b151b3c07e58c9a2437", size = 202505, upload-time = "2026-02-05T21:50:51.819Z" },
+]
+
+[[package]]
+name = "glassbox-lm"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "glassbox-lm-cli" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "glassbox-lm-cli", editable = "apps/cli" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "glassbox-lm-architectures"
+version = "0.1.0"
+source = { editable = "libs/architectures" }
+dependencies = [
+    { name = "glassbox-lm-core" },
+    { name = "pydantic-settings" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "glassbox-lm-core", editable = "libs/core" },
+    { name = "pydantic-settings", specifier = ">=2.13.1" },
+    { name = "torch", specifier = ">=2.4" },
+]
+
+[[package]]
+name = "glassbox-lm-cli"
+version = "0.1.0"
+source = { editable = "apps/cli" }
+dependencies = [
+    { name = "glassbox-lm-architectures" },
+    { name = "glassbox-lm-core" },
+    { name = "glassbox-lm-data" },
+    { name = "glassbox-lm-training" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "glassbox-lm-architectures", editable = "libs/architectures" },
+    { name = "glassbox-lm-core", editable = "libs/core" },
+    { name = "glassbox-lm-data", editable = "libs/data" },
+    { name = "glassbox-lm-training", editable = "libs/training" },
+    { name = "torch", specifier = ">=2.4" },
+]
+
+[[package]]
+name = "glassbox-lm-core"
+version = "0.1.0"
+source = { editable = "libs/core" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pydantic-settings", specifier = ">=2.13.1" },
+    { name = "torch", specifier = ">=2.4" },
+]
+
+[[package]]
+name = "glassbox-lm-data"
+version = "0.1.0"
+source = { editable = "libs/data" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+]
+
+[package.optional-dependencies]
+prepare = [
+    { name = "sentencepiece" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "sentencepiece", marker = "extra == 'prepare'" },
+]
+provides-extras = ["prepare"]
+
+[[package]]
+name = "glassbox-lm-training"
+version = "0.1.0"
+source = { editable = "libs/training" }
+dependencies = [
+    { name = "glassbox-lm-core" },
+    { name = "numpy" },
+    { name = "sentencepiece" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "glassbox-lm-core", editable = "libs/core" },
+    { name = "numpy" },
+    { name = "sentencepiece" },
+    { name = "torch", specifier = ">=2.4" },
 ]
 
 [[package]]

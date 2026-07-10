@@ -1,0 +1,208 @@
+"""
+v8_lowrank_vv: Recurrent rank-r linear layer in vocab space, applied in a
+residual loop. The "within-position" mixer is a low-rank V x V matrix
+factored as U @ V^T + diag(d), i.e. a rank-r linear map with a learned
+diagonal correction.
+
+Hidden state is V-dimensional; input is one-hot; no output projection.
+
+Per step:
+  x = x + scale * Propagation(rms_norm(x))       # cross-position
+  x = x + scale * LowRankVV(rms_norm(x))          # within-position
+
+Within-position mixer:
+  y = gelu(x @ U @ V^T + x * diag + bias) * out_scale
+  U, V are (V, r); W_effective = U @ V^T + diag is a rank-r + diagonal
+  approximation to a full V x V matrix.
+
+Cross-position:
+  scores[t, s] = (x_t * q_scale) . (x_s * k_scale), masked causal with
+  exponential decay; output = scores @ x. Linear attention with per-dim
+  diagonal Q/K scaling rather than full Q/K projections.
+
+Best performer per README at rank 8 (164K params, val_loss 5.24).
+Memorizes at rank 64 (train loss ~0.04, val stays high) because the
+rank-64 mixer has capacity to store a bigram lookup table.
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from pydantic_settings import BaseSettings
+from torch import Tensor
+
+from glassbox_lm.core.base import AgiModel
+
+
+# ---------------------------------------------------------------------------
+# Word interaction layer
+# ---------------------------------------------------------------------------
+
+class WordInteraction(nn.Module):
+    """Learned word-to-word interaction matrix.
+
+    W = U @ V^T + diag(d)
+    - U @ V^T: low-rank shared structure (common word associations)
+    - diag(d): per-word self-interaction (word-specific bias)
+
+    Applying W to register state x:
+      y = x @ W = x @ (U @ V^T + diag(d))
+        = (x @ U) @ V^T + x * d
+
+    Cost: O(V * r) instead of O(V^2) for full matrix.
+    Interpretable: U captures word groups, V^T maps groups to targets.
+    """
+
+    def __init__(self, vocab_size: int, rank: int, activation: str = "gelu"):
+        super().__init__()
+        self.activation = activation
+        s = 0.02
+        self.U = nn.Parameter(torch.randn(vocab_size, rank) * s)
+        self.V = nn.Parameter(torch.randn(vocab_size, rank) * s)
+        self.diag = nn.Parameter(torch.zeros(vocab_size))
+        self.bias = nn.Parameter(torch.zeros(vocab_size))
+        self.out_scale = nn.Parameter(torch.tensor(0.1))
+
+    def forward(self, x: Tensor) -> Tensor:
+        dtype = x.dtype
+        # Low-rank interaction + diagonal
+        h = (x @ self.U.to(dtype)) @ self.V.to(dtype).T + x * self.diag.to(dtype) + self.bias.to(dtype)
+        # Nonlinearity
+        if self.activation == "relu2":
+            h = F.relu(h).square()
+        elif self.activation == "swish":
+            h = F.silu(h)
+        else:
+            h = F.gelu(h)
+        return h * self.out_scale.to(dtype)
+
+
+# ---------------------------------------------------------------------------
+# Causal word propagation (cross-position)
+# ---------------------------------------------------------------------------
+
+class CausalWordPropagation(nn.Module):
+    """Cross-position mixing via causal decay in word space.
+
+    No projection to channel space — operate directly on vocab activations.
+    scores[t,s] = x_t · x_s (word activation similarity)
+    Decay-weighted causal sum propagates word activations forward.
+
+    This asks: "which past positions had similar word activations?"
+    and blends their register states into the current position.
+    """
+
+    def __init__(self, vocab_size: int, decay_init: float = 3.0):
+        super().__init__()
+        self.decay_logit = nn.Parameter(torch.tensor(decay_init))
+        self.out_scale = nn.Parameter(torch.tensor(0.1))
+        # Learned query/key transforms in word space (diagonal — per-word scaling)
+        self.q_scale = nn.Parameter(torch.ones(vocab_size))
+        self.k_scale = nn.Parameter(torch.ones(vocab_size))
+
+    def forward(self, x: Tensor) -> Tensor:
+        B, T, V = x.shape
+        dtype = x.dtype
+
+        queries = x * self.q_scale.to(dtype)
+        keys = x * self.k_scale.to(dtype)
+
+        # Word activation similarity
+        scores = torch.bmm(queries, keys.transpose(1, 2))  # (B, T, T)
+
+        # Causal decay mask
+        decay = torch.sigmoid(self.decay_logit)
+        pos = torch.arange(T, device=x.device)
+        diff = pos.unsqueeze(1) - pos.unsqueeze(0)
+        causal = (diff > 0)
+        weights = (decay ** (diff.float() - 1).clamp(min=0)) * causal
+        scores = scores * weights.to(dtype).unsqueeze(0)
+
+        # Propagate word activations
+        retrieved = torch.bmm(scores, x)  # (B, T, V)
+        return retrieved * self.out_scale.to(dtype)
+
+
+# ---------------------------------------------------------------------------
+# Graph hop step
+# ---------------------------------------------------------------------------
+
+class GraphHop(nn.Module):
+    """One hop through the word interaction graph.
+
+    Cross-position: causal word propagation (which past positions matter?)
+    Within-position: word interaction (which words activate which other words?)
+    """
+
+    def __init__(self, vocab_size: int, rank: int, activation: str = "gelu",
+                 decay_init: float = 3.0):
+        super().__init__()
+        self.propagation = CausalWordPropagation(vocab_size, decay_init)
+        self.interaction = WordInteraction(vocab_size, rank, activation)
+        self.prop_scale = nn.Parameter(torch.ones(1))
+        self.interact_scale = nn.Parameter(torch.ones(1))
+
+    def forward(self, x: Tensor) -> Tensor:
+        V = x.size(-1)
+        x = x + self.prop_scale.to(x.dtype) * self.propagation(
+            F.rms_norm(x, (V,)))
+        x = x + self.interact_scale.to(x.dtype) * self.interaction(
+            F.rms_norm(x, (V,)))
+        return x
+
+
+# ---------------------------------------------------------------------------
+# LowRankVVLM
+# ---------------------------------------------------------------------------
+
+class LowRankVVLM(AgiModel):
+    """Recurrent rank-r V x V linear layer (U @ V^T + diag) in vocab space."""
+
+    version = "v8_lowrank_vv"
+    architecture = "Low-rank V x V linear layer"
+    cross_position = "Diagonal-Q/K linear attention (activation similarity)"
+    within_position = "Low-rank V x V linear layer (U @ V^T + diag)"
+
+    class Settings(BaseSettings):
+        vocab_size: int = 1024
+        num_steps: int = 8
+        interaction_rank: int = 64
+        logit_softcap: float = 30.0
+        activation: str = "gelu"
+        decay_init: float = 3.0
+
+    @classmethod
+    def build_kwargs(cls, args) -> dict:
+        kw = cls._read_args(args)
+        kw['num_hops'] = kw.pop('num_steps')
+        return cls._filter_init(kw)
+
+    def __init__(self, vocab_size: int = 1024, num_hops: int = 8,
+                 interaction_rank: int = 64, logit_softcap: float = 30.0,
+                 activation: str = "gelu", decay_init: float = 3.0):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.num_hops = num_hops
+        self.logit_softcap = logit_softcap
+
+        self.hops = nn.ModuleList([
+            GraphHop(vocab_size, interaction_rank, activation, decay_init)
+            for _ in range(num_hops)
+        ])
+
+        self.logit_scale = nn.Parameter(torch.tensor(1.0))
+
+    def forward(self, input_ids: Tensor, target_ids: Tensor) -> Tensor:
+        V = self.vocab_size
+        x = F.one_hot(input_ids, V).to(dtype=torch.bfloat16)
+        x = F.rms_norm(x, (V,))
+
+        for hop in self.hops:
+            x = hop(x)
+
+        x = F.rms_norm(x, (V,))
+        logits = x * self.logit_scale.to(x.dtype)
+        logits = self.logit_softcap * torch.tanh(logits / self.logit_softcap)
+
+        return F.cross_entropy(logits.float().reshape(-1, V),
+                               target_ids.reshape(-1), reduction="mean")

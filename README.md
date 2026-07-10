@@ -27,19 +27,19 @@ To be clear about the bar: this is **performance *and* observability — observa
 
 ## Observing the computation
 
-The point of word-space states is that you can read the computation directly. [`apps/cli/observe.py`](apps/cli/observe.py) (`observe <cmd>`):
+The point of word-space states is that you can read the computation directly. [`apps/cli/src/glassbox_lm/cli/observe.py`](apps/cli/src/glassbox_lm/cli/observe.py) (`glassbox observe <cmd>`; `glassbox list` prints every discovered architecture with metadata):
 
 | Command | What it shows |
 |---|---|
-| `observe trace` | top-k active words in the register state after each step, for a prompt — watch a prediction form |
-| `observe wordmap` | for v8, the learned word→word interaction matrix `W = U@Vᵀ + diag(d)` ("which word activates which") |
-| `observe causality` | perturb one vocab dimension mid-computation, measure how far the predicted next-word distribution moves — is the readable state *load-bearing* or decorative? |
-| `observe demo` | controlled faithfulness check: train v8 on a planted bigram (`next[i] = perm[i]`), then verify the map recovers it |
-| `observe sweep` | map which (step, word) sites are causally load-bearing vs decorative, across depth |
-| `observe coverage` | the observability number: fraction of readable active-word sites that are causally load-bearing, with robustness across τ thresholds |
-| `observe induction` | beyond-bigram check: train on in-context key→value pairs and test query-position recall against bigram chance *and* the key-free-copier ceiling |
+| `glassbox observe trace` | top-k active words in the register state after each step, for a prompt — watch a prediction form |
+| `glassbox observe wordmap` | for v8, the learned word→word interaction matrix `W = U@Vᵀ + diag(d)` ("which word activates which") |
+| `glassbox observe causality` | perturb one vocab dimension mid-computation, measure how far the predicted next-word distribution moves — is the readable state *load-bearing* or decorative? |
+| `glassbox observe demo` | controlled faithfulness check: train v8 on a planted bigram (`next[i] = perm[i]`), then verify the map recovers it |
+| `glassbox observe sweep` | map which (step, word) sites are causally load-bearing vs decorative, across depth |
+| `glassbox observe coverage` | the observability number: fraction of readable active-word sites that are causally load-bearing, with robustness across τ thresholds |
+| `glassbox observe induction` | beyond-bigram check: train on in-context key→value pairs and test query-position recall against bigram chance *and* the key-free-copier ceiling |
 
-**Faithfulness result (the central claim, tested).** On the planted-bigram demo, the recovered map `argmax_j W[i,j]` matches the true `perm[i]` for **100% of words** (chance ≈ 3%) — in this controlled setting, reading the weights tells the truth. The open questions are whether that readability holds on real text and at scale, and whether the states are causally load-bearing (run `observe causality` on a trained checkpoint to check). This is the actual research frontier — not the bits-per-byte score.
+**Faithfulness result (the central claim, tested).** On the planted-bigram demo, the recovered map `argmax_j W[i,j]` matches the true `perm[i]` for **100% of words** (chance ≈ 3%) — in this controlled setting, reading the weights tells the truth. The open questions are whether that readability holds on real text and at scale, and whether the states are causally load-bearing (run `glassbox observe causality` on a trained checkpoint to check). This is the actual research frontier — not the bits-per-byte score.
 
 ## What We've Found So Far
 
@@ -71,7 +71,7 @@ On this corpus and an equal budget the ranking **inverts** the historical table:
 
 ### Where this lands on Parameter Golf
 
-Used here as a **raw-capability yardstick — not the project's goal** (the goal is interpretability/observability; see *What's actually unique here*). [OpenAI's Parameter Golf](https://github.com/openai/parameter-golf): the best LM in a **16 MB artifact** (code + compressed weights), trained in **under 10 min on 8× H100**, scored by **tokenizer-agnostic bits-per-byte** on the FineWeb validation set. `train.py` already emits the int8 + zlib artifact this competition scores.
+Used here as a **raw-capability yardstick — not the project's goal** (the goal is interpretability/observability; see *What's actually unique here*). [OpenAI's Parameter Golf](https://github.com/openai/parameter-golf): the best LM in a **16 MB artifact** (code + compressed weights), trained in **under 10 min on 8× H100**, scored by **tokenizer-agnostic bits-per-byte** on the FineWeb validation set. The training loop already emits the int8 + zlib artifact this competition scores.
 
 | | bits-per-byte |
 |---|---|
@@ -99,7 +99,7 @@ Adding the embedding drops bpb **3.24 → 2.37 (≈0.87 bpb)** and closes ~43% o
 
 ### Width sweep (2026-06): under revision
 
-The hypothesis: scaling v8's interaction **rank** improves bits-per-byte and causal coverage (`observe coverage`: the fraction of readable active-word sites that are causally load-bearing) at the same time. The committed sweep artifacts (`artifacts/rank{8,16,32,64}_manifest.json`; 165 steps, ~300 s wall-clock, 3 GPUs per run) do not support it yet:
+The hypothesis: scaling v8's interaction **rank** improves bits-per-byte and causal coverage (`glassbox observe coverage`: the fraction of readable active-word sites that are causally load-bearing) at the same time. The committed sweep artifacts (`artifacts/rank{8,16,32,64}_manifest.json`; 165 steps, ~300 s wall-clock, 3 GPUs per run) do not support it yet:
 
 | v8 width | params | train loss | val_bpb |
 |---|---|---|---|
@@ -190,26 +190,30 @@ Names describe mechanism, not metaphor.
 ## Quick Start
 
 ```bash
-# Setup on RunPod
+# Setup on RunPod (installs into system Python, so a GPU image's
+# preinstalled torch satisfies the dependency and is left alone)
 curl -sSL https://raw.githubusercontent.com/urmzd/glassbox-lm/main/setup.sh | bash
 
-# Or manually. torch is a base dependency; on GPU images that already ship
-# torch (e.g. RunPod), the preinstalled build satisfies it and is left alone.
-uv pip install --system -e .
-python data/download_data.py --variant sp1024
+# Or manually — creates .venv with every workspace package (torch included);
+# prefix commands with `uv run` or activate the venv first
+uv sync
+glassbox data download --variant sp1024
 
 # Train the best model (low-rank V x V, rank 8)
 INTERACTION_RANK=8 MODEL_VERSION=v8_lowrank_vv \
-  torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) train.py
+  torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) -m glassbox_lm.training
+
+# List every discovered architecture (with metadata)
+glassbox list
 
 # Benchmark all models
-benchmark
+glassbox benchmark
 
 # Benchmark specific models
-benchmark --versions v8_lowrank_vv,v2_conv,v14_data_dependent --minutes 10
+glassbox benchmark --versions v8_lowrank_vv,v2_conv,v14_data_dependent --minutes 10
 ```
 
-All hyperparameters configurable via environment variables. See `core/config.py`.
+All hyperparameters configurable via environment variables. See `glassbox_lm.core.config`.
 
 ## What We've Learned
 

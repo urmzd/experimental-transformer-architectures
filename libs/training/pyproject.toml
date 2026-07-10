@@ -1,0 +1,22 @@
+[project]
+name = "glassbox-lm-training"
+version = "0.1.0"
+description = "Glassbox LM training loop: DDP/torchrun entry point (torchrun -m glassbox_lm.training)"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "glassbox-lm-core",
+    "numpy",
+    "sentencepiece",
+    "torch>=2.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "glassbox_lm.training"
+
+[tool.uv.sources]
+glassbox-lm-core = { workspace = true }
