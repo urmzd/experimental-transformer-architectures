@@ -28,15 +28,6 @@ def _get_all_versions():
     return sorted(get_registry().keys())
 
 
-ALL_VERSIONS = [  # fallback ordering; overridden at runtime if models importable
-    "v1_shared_attn", "v2_conv", "v3_fourier_linattn", "v4_weight_shared",
-    "v5_fft_linattn", "v6_banded_fourier", "v7_soft_ops", "v8_lowrank_vv",
-    "v9_linattn", "v10_state_cond_op", "v11a_mixed_ops", "v11b_hard_routing",
-    "v12_vocab_slice", "v13_with_embedding", "v14_data_dependent",
-    "v15_aux_loss", "v16_multi_branch",
-]
-
-
 def detect_gpus() -> int:
     try:
         out = subprocess.check_output(["nvidia-smi", "-L"], text=True)
@@ -150,11 +141,7 @@ def main():
                         help="Output JSON path (default: logs/benchmark_results.json)")
     args = parser.parse_args()
 
-    try:
-        all_versions = _get_all_versions()
-    except Exception:
-        all_versions = ALL_VERSIONS
-    versions = args.versions.split(",") if args.versions else all_versions
+    versions = args.versions.split(",") if args.versions else _get_all_versions()
     seeds = [int(s) for s in args.seeds.split(",")]
     nproc = detect_gpus()
 

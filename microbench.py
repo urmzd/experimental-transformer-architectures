@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-Rapid model benchmarking — no CUDA, no real data required.
+Rapid model microbenchmark — no CUDA, no real data required.
 
 Instantiates every model variant, runs forward+backward with synthetic tokens,
 and reports: param count, memory, throughput, loss, gradient health.
 
+Never use this to rank trained quality — synthetic microbenches don't transfer
+to real-text bits-per-byte (see docs/INTERESTING_FINDINGS.md). The trained-quality
+harness is apps/cli/benchmark.py, installed as the `benchmark` console script.
+
 Usage:
-    python benchmark.py                                                    # all models, defaults
-    python benchmark.py v8_lowrank_vv v9_linattn v10_state_cond_op         # specific models only
-    python benchmark.py --seq-len 512 --batch 4 --steps 3                  # custom sizes
+    python microbench.py                                                   # all models, defaults
+    python microbench.py v8_lowrank_vv v9_linattn v10_state_cond_op        # specific models only
+    python microbench.py --seq-len 512 --batch 4 --steps 3                 # custom sizes
 """
 from __future__ import annotations
 

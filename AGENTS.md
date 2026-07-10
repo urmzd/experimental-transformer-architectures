@@ -1,4 +1,4 @@
-# Experimental Transformer Architectures — Agent Guidelines
+# Glassbox LM — Agent Guidelines
 
 ## Principles
 
@@ -16,9 +16,13 @@
 4. Set `version = "vN_mechanism_description"` on the class (matches the directory suffix).
 5. Add any new env vars to the appropriate config class in `core/config.py`.
 6. Add any new control tensor name patterns to `CONTROL_TENSOR_NAME_PATTERNS` in `core/quantize.py` (these stay in fp32 during bfloat16 training).
-7. Add the model to the `MODELS` list in `run_all.py`.
-8. Update top-level `README.md` — add a row to the architecture table and a line to what-we've-learned.
-9. Update `TODO.md` if relevant.
+7. Update top-level `README.md` — add a row to the architecture table and a line to what-we've-learned.
+8. Update `TODO.md` if relevant.
+
+No harness edits are needed: `run_all.py`, `benchmark`, `observe`, and the test
+suite all iterate the registry. Add per-version env overrides to
+`ENV_OVERRIDES` in `run_all.py` only if the variant needs non-default
+hyperparameters there.
 
 ## Control tensor patterns
 
@@ -56,13 +60,13 @@ SSH config alias: `runpod` (configured in `~/.ssh/config`, key: `~/.ssh/runpod`)
 Setup on a fresh pod:
 ```bash
 cd /workspace && \
-git clone https://github.com/urmzd/experimental-transformer-architectures.git && \
-cd experimental-transformer-architectures && bash setup.sh
+git clone https://github.com/urmzd/glassbox-lm.git && \
+cd glassbox-lm && bash setup.sh
 ```
 
 Run training:
 ```bash
-cd /workspace/experimental-transformer-architectures && \
+cd /workspace/glassbox-lm && \
 TRAIN_BATCH_TOKENS=491520 \
 GRAD_ACCUM_STEPS=16 \
 TRAIN_LOG_EVERY=10 \
@@ -104,9 +108,9 @@ train.py
 
 The non-obvious split (everything else is discoverable with ripgrep, e.g. `rg "def eval_val"`):
 
-- Two benchmark harnesses exist on purpose: `benchmark.py` at the repo root is a synthetic-data CPU microbench (speed, init loss, gradient health — never use it to rank trained quality), while `apps/cli/benchmark.py` is the wallclock-budget GPU comparison that runs `train.py` per version via torchrun; `results.py` aggregates its `logs/*_manifest.json` output.
-- Model directories are named `vN_mechanism_description/`, each containing `__init__.py` and `model.py`; `core/registry.py` auto-discovers any `AgiModel` subclass with a `version` set, so there is no central model list to edit (only `run_all.py` keeps its own `MODELS` list).
-- Shared infrastructure lives in `core/` (config, data, eval, quantize, registry); research notes go in `docs/`; findings from the CPU microbench live in `docs/INTERESTING_FINDINGS.md`.
+- Two benchmark harnesses exist on purpose: `microbench.py` at the repo root is a synthetic-data CPU microbench (speed, init loss, gradient health — never use it to rank trained quality), while `apps/cli/benchmark.py` (installed as the `benchmark` console script) is the wallclock-budget GPU comparison that runs `train.py` per version via torchrun; `results.py` aggregates its `logs/*_manifest.json` output.
+- Model directories are named `vN_mechanism_description/`, each containing `__init__.py` and `model.py`; `core/registry.py` auto-discovers any `AgiModel` subclass with a `version` set, so there is no central model list to edit anywhere (`run_all.py` and `apps/cli/benchmark.py` iterate the registry too).
+- Shared infrastructure lives in `core/` (config, data, eval, quantize, registry); the docs map is `docs/README.md` (system design: `docs/ARCHITECTURE.md`; verification: `docs/TESTING.md`); findings from the CPU microbench live in `docs/INTERESTING_FINDINGS.md`.
 
 ## MODEL_VERSION values
 

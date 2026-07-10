@@ -13,7 +13,7 @@
 - [x] Per-step gradient-norm logging (`train.py` logs `grad_norm`; manifest stores `final_grad_norm`)
 - [ ] MLX support for current models — only v0 has an MLX training script
 - [ ] Wandb/tensorboard logging
-- [ ] Add `v11b_hard_routing`, `v11a_mixed_ops`, `v12_vocab_slice` to `run_all.py` model list
+- [x] ~~Add `v11b_hard_routing`, `v11a_mixed_ops`, `v12_vocab_slice` to `run_all.py` model list~~ — `run_all.py` is now registry-driven; no list to maintain
 
 ## Training
 - [x] Checkpoint save/resume

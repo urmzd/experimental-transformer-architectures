@@ -15,7 +15,7 @@ Pre-1.0 projects: only the latest minor is supported.
 
 Report privately via one of:
 
-1. [GitHub Security Advisories](https://github.com/urmzd/experimental-transformer-architectures/security/advisories/new) (preferred)
+1. [GitHub Security Advisories](https://github.com/urmzd/glassbox-lm/security/advisories/new) (preferred)
 2. Email **hello@urmzd.com**
 
 Include:

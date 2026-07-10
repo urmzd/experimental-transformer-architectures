@@ -1,18 +1,18 @@
 <p align="center">
-  <h1 align="center">Experimental Transformer Architectures</h1>
+  <h1 align="center">Glassbox LM</h1>
   <p align="center">
     A testbed for <em>observable</em> language models: hidden dimension equals vocabulary size, so every register state is a readable distribution over words. Built to understand how the computation works — not to win a benchmark.
     <br /><br />
     <a href="#quick-start">Quick Start</a>
     &middot;
-    <a href="https://github.com/urmzd/experimental-transformer-architectures/issues">Report Bug</a>
+    <a href="https://github.com/urmzd/glassbox-lm/issues">Report Bug</a>
     &middot;
     <a href="#model-versions">Model Versions</a>
   </p>
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/urmzd/experimental-transformer-architectures" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/urmzd/glassbox-lm" alt="License"></a>
 </p>
 
 The problem these experiments attack: frontier language models are **billions of opaque parameters with no faithful way to see how they compute** or to link internal activity to meaning. The goal here is **observability at no performance cost** — architectures (and the tooling around them) where you can see *how the computation works* **without giving up the quality of an opaque model**. Observability that costs accuracy isn't the win; observability that's *free* is. (Whether you can drop embeddings was never the question — opacity at scale is.) For the precise problem — why readable *I/O* isn't it, and the honest catches — see [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
@@ -191,7 +191,7 @@ Names describe mechanism, not metaphor.
 
 ```bash
 # Setup on RunPod
-curl -sSL https://raw.githubusercontent.com/urmzd/experimental-transformer-architectures/main/setup.sh | bash
+curl -sSL https://raw.githubusercontent.com/urmzd/glassbox-lm/main/setup.sh | bash
 
 # Or manually. torch is a base dependency; on GPU images that already ship
 # torch (e.g. RunPod), the preinstalled build satisfies it and is left alone.
@@ -232,6 +232,18 @@ All hyperparameters configurable via environment variables. See `core/config.py`
 - Mamba (Gu & Dao 2023) — data-dependent state transitions
 - RWKV — linear attention with causal decay
 - Hyena — input-dependent long convolutions
+
+## Documentation
+
+The docs map lives at [docs/README.md](docs/README.md). Key entries:
+
+| Document | Question it answers |
+|---|---|
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Why — the mechanism-vs-boundary framing of the observability problem |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How — repo layout, shared infrastructure, the model-variant contract, entry points |
+| [docs/TESTING.md](docs/TESTING.md) | How it's verified — test gates, GPU-verified concerns, results discipline |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Working on the repo — setup, dev loop, add-a-model checklist |
+| [AGENTS.md](AGENTS.md) | Operational reference — env vars, training commands, RunPod |
 
 ## Agent Skill
 

@@ -1,12 +1,12 @@
 # Interesting Findings
 
-> **Caveat (2026-05):** The table below is a *synthetic-data, CPU forward/backward* micro-benchmark — it measures speed and init-time gradient/loss behavior, **not trained quality**. OpenAI's Parameter Golf write-up found that synthetic benchmarks don't transfer to real-text bits-per-byte, so don't use this to rank architectures for the real objective. For trained quality on the target corpus, see the head-to-head table in [`README.md`](../README.md). (This table comes from the root `benchmark.py` microbench; the wallclock GPU comparison harness is `apps/cli/benchmark.py`, which takes `--versions/--minutes/--batch`.)
+> **Caveat (2026-05):** The table below is a *synthetic-data, CPU forward/backward* micro-benchmark — it measures speed and init-time gradient/loss behavior, **not trained quality**. OpenAI's Parameter Golf write-up found that synthetic benchmarks don't transfer to real-text bits-per-byte, so don't use this to rank architectures for the real objective. For trained quality on the target corpus, see the head-to-head table in [`README.md`](../README.md). (This table comes from the root `microbench.py` microbench; the wallclock GPU comparison harness is `apps/cli/benchmark.py`, which takes `--versions/--minutes/--batch`.)
 >
-> The tok/s column below is forward-time only (methodology corrected 2026-06-09: `benchmark.py` now computes tok/s from forward+backward time, so a rerun will report lower values).
+> The tok/s column below is forward-time only (methodology corrected 2026-06-09: the microbench (now `microbench.py`) computes tok/s from forward+backward time, so a rerun will report lower values).
 
 ## Benchmark: CPU Forward+Backward (synthetic data, no training)
 
-Run via `python benchmark.py --iters 3 --batch 2 --seq-len 128`.
+Run via `python microbench.py --iters 3 --batch 2 --seq-len 128`.
 
 | Model | Params | Raw MB | ~Int8 MB | Fwd ms | Bwd ms | Total ms | tok/s | Init Loss | AvgGrad | MaxGrad | Dead |
 |---|---|---|---|---|---|---|---|---|---|---|---|

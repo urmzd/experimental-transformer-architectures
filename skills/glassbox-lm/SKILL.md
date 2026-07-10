@@ -1,9 +1,9 @@
 ---
-name: experimental-transformer-architectures
+name: glassbox-lm
 description: "Experimental language model architectures where hidden dimension equals vocabulary size, exploring interpretability through vocabulary-space computation. Use when training models, adding architectures, or analyzing results."
 ---
 
-# experimental-transformer-architectures
+# glassbox-lm
 
 Language models whose hidden dimension equals the vocabulary size: no embedding, no output projection, so every register state is a readable distribution over words. The goal is observability at no performance cost. Model variants live in `vN_mechanism_description/` directories and are auto-discovered by `core/registry.py` from the `version` class attribute; `train.py` is the single training entry point.
 
@@ -28,7 +28,7 @@ Common knobs: `MODEL_VERSION`, `SEED`, `LR`, `ITERATIONS`, `MAX_WALLCLOCK_SECOND
 ## Benchmark and aggregate
 
 ```bash
-python benchmark.py --iters 3 --batch 2 --seq-len 128     # CPU microbench: synthetic data, speed and gradient health only
+python microbench.py --iters 3 --batch 2 --seq-len 128     # CPU microbench: synthetic data, speed and gradient health only
 benchmark --versions v8_lowrank_vv,v12_vocab_slice --minutes 10 --seeds 1337,1338,1339   # wallclock GPU comparison via train.py
 python results.py                                          # table from logs/*_manifest.json; mean±std per config when n>1
 bash scripts/rank_sweep.sh                                 # regenerates the docs/OBSERVABILITY.md width table (ranks x seeds + coverage)
@@ -63,5 +63,5 @@ uv run pytest tests/ -q
 2. Subclass `AgiModel` (`core/base.py`), set `version = "vN_mechanism_description"`, implement `forward(input_ids, target_ids)` returning a scalar loss. No embeddings, no output projection (only `v13_with_embedding` is exempt, as the opaque baseline).
 3. New hyperparameters go in `core/config.py` as env-var-backed fields with sensible defaults.
 4. Control tensors (scales, biases, decay logits, gates) must stay fp32 under bf16 training: their names must end with a pattern in `CONTROL_TENSOR_NAME_PATTERNS` (`core/quantize.py`, suffix match). Never add a pattern that is a suffix of ordinary projection weight names (e.g. `weight`) — `tests/test_precision.py` gates this.
-5. Add the model to the `MODELS` list in `run_all.py` and a row to the README architecture table.
+5. Add a row to the README architecture table. No harness edits needed — `run_all.py`, `benchmark`, and `observe` iterate the registry (per-version env overrides go in `ENV_OVERRIDES` in `run_all.py` if required).
 6. Run the test suite: registry discovery, forward/backward smoke, precision regime, capture inertness, and causal masking are all parametrized over the registry and will pick the new version up automatically.

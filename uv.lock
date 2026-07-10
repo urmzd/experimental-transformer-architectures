@@ -92,7 +92,7 @@ wheels = [
 ]
 
 [[package]]
-name = "experimental-transformer-architectures"
+name = "glassbox-lm"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
-"""Run all model versions sequentially and collect results."""
+"""Run all model versions sequentially and collect results.
+
+Versions come from core.registry auto-discovery, so new models are picked up
+without editing this file. Per-version env overrides and exclusions below.
+"""
 import os
 import subprocess
 import sys
 
+from core.registry import get_registry
 
-MODELS = [
-    {"version": "v1_shared_attn",     "env": {"NUM_STEPS": "8"}},
-    {"version": "v2_conv",            "env": {"NUM_STEPS": "16"}},
-    {"version": "v3_fourier_linattn", "env": {}},
-    {"version": "v4_weight_shared",   "env": {}},
-    {"version": "v5_fft_linattn",     "env": {"N_FOURIER_BASIS": "64"}},
-    {"version": "v6_banded_fourier",  "env": {}},
-    {"version": "v7_soft_ops",        "env": {"NUM_STEPS": "16", "N_CHANNELS": "64"}},
-    {"version": "v8_lowrank_vv",      "env": {}},
-    {"version": "v9_linattn",         "env": {}},
-    {"version": "v10_state_cond_op",  "env": {}},
-    {"version": "v11a_mixed_ops",     "env": {}},
-    {"version": "v11b_hard_routing",  "env": {}},
-    {"version": "v12_vocab_slice",    "env": {}},
-    {"version": "v14_data_dependent", "env": {}},
-    {"version": "v15_aux_loss",       "env": {}},
-    {"version": "v16_multi_branch",   "env": {}},
-]
+# The opaque-embedding baseline is a control, not a contestant — run it explicitly.
+EXCLUDE = {"v13_with_embedding"}
+
+# Per-version hyperparameter overrides (env vars, applied on top of the shared config).
+ENV_OVERRIDES = {
+    "v1_shared_attn":  {"NUM_STEPS": "8"},
+    "v2_conv":         {"NUM_STEPS": "16"},
+    "v5_fft_linattn":  {"N_FOURIER_BASIS": "64"},
+    "v7_soft_ops":     {"NUM_STEPS": "16", "N_CHANNELS": "64"},
+}
 
 # Detect GPU count
 try:
@@ -38,9 +35,10 @@ def main():
     log_every = os.environ.get("TRAIN_LOG_EVERY", "50")
     iterations = os.environ.get("ITERATIONS", "500")
 
+    versions = [v for v in sorted(get_registry()) if v not in EXCLUDE]
+
     results = []
-    for m in MODELS:
-        version = m["version"]
+    for version in versions:
         run_id = f"{version}_eval"
         print(f"\n{'='*60}")
         print(f"  Running {version} (run_id={run_id})")
@@ -54,7 +52,7 @@ def main():
             "TRAIN_LOG_EVERY": log_every,
             "ITERATIONS": iterations,
             "RUN_ID": run_id,
-            **m["env"],
+            **ENV_OVERRIDES.get(version, {}),
         }
 
         cmd = [
